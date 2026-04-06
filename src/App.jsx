@@ -1027,7 +1027,7 @@ export default function VinApp() {
           isMobile={!isDesktop}
         />
       )}
-      <FilterPanel isMobile={!isDesktop} open={filterOpen} onClose={() => setFilterOpen(false)} filterCat={filterCat} setFilterCat={setFilterCat} filterCountry={filterCountry} setFilterCountry={setFilterCountry} />
+      {!isDesktop && <FilterPanel isMobile open={filterOpen} onClose={() => setFilterOpen(false)} filterCat={filterCat} setFilterCat={setFilterCat} filterCountry={filterCountry} setFilterCountry={setFilterCountry} />}
     </div>
   );
 }
