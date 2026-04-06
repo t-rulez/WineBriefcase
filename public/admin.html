@@ -1,1 +1,221 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VinBriefcase Admin — Oppdater produkt-IDer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Georgia, serif; background: #f5eeea; color: #2a1010; padding: 20px; }
+    h1 { color: #5c1a1a; margin-bottom: 6px; font-size: 22px; }
+    .subtitle { color: #8a5a50; font-size: 13px; margin-bottom: 24px; }
+    .wine-row {
+      background: #fff; border: 1px solid #e8d0c8; border-radius: 10px;
+      padding: 14px 16px; margin-bottom: 10px;
+      display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap;
+    }
+    .wine-info { flex: 1; min-width: 200px; }
+    .wine-name { font-weight: 700; font-size: 14px; }
+    .wine-producer { font-size: 12px; color: #8a5a50; margin-top: 2px; }
+    .wine-type { font-size: 11px; color: #c8922a; font-weight: 600; margin-top: 2px; }
+    .current-id { font-size: 12px; margin-top: 4px; }
+    .current-id a { color: #5c1a1a; }
+    .img-preview { width: 40px; height: 88px; object-fit: contain; border-radius: 4px; background: #f5eeea; flex-shrink: 0; }
+    .search-area { flex: 2; min-width: 280px; }
+    .search-row { display: flex; gap: 6px; margin-bottom: 6px; }
+    .search-input { flex: 1; padding: 8px 10px; border: 1.5px solid #e8d0c8; border-radius: 8px; font-size: 13px; font-family: inherit; }
+    .btn { padding: 8px 14px; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .btn-search { background: #5c1a1a; color: #fff; }
+    .btn-apply { background: #2e7d32; color: #fff; }
+    .btn-skip { background: #e8d0c8; color: #5a3030; }
+    .results { margin-top: 6px; }
+    .result-item {
+      display: flex; gap: 8px; align-items: center; padding: 6px 10px;
+      border-radius: 6px; cursor: pointer; border: 1.5px solid transparent;
+      margin-bottom: 4px; background: #fdfaf8; font-size: 13px;
+    }
+    .result-item:hover { border-color: #5c1a1a; }
+    .result-item.selected { border-color: #2e7d32; background: #e8f5e9; }
+    .result-img { width: 24px; height: 52px; object-fit: contain; }
+    .result-name { flex: 1; font-weight: 600; }
+    .result-id { color: #8a5a50; font-size: 11px; white-space: nowrap; }
+    .status-ok { color: #2e7d32; font-size: 12px; font-weight: 700; margin-top: 4px; display: block; }
+    .status-err { color: #c0392b; font-size: 12px; margin-top: 4px; display: block; }
+    #progress {
+      position: sticky; top: 0; background: #3a0f0f; color: #fff;
+      padding: 10px 16px; border-radius: 10px; margin-bottom: 16px;
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 13px; z-index: 10;
+    }
+    .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filter-btn {
+      padding: 6px 14px; border-radius: 20px; border: 1.5px solid #e8d0c8;
+      background: #fff; cursor: pointer; font-size: 12px; font-weight: 600;
+      font-family: inherit; color: #5a3030;
+    }
+    .filter-btn.active { background: #5c1a1a; color: #fff; border-color: #5c1a1a; }
+    #loading { text-align: center; padding: 40px; color: #8a5a50; }
+  </style>
+</head>
+<body>
+<h1>🍷 VinBriefcase Admin</h1>
+<p class="subtitle">Søket skjer direkte fra nettleseren din mot vinmonopolet.no — ingen server-blokkering.</p>
 
+<div id="progress">
+  <span id="prog-text">Laster viner...</span>
+  <span id="prog-count"></span>
+</div>
+
+<div class="filter-bar">
+  <button class="filter-btn active" onclick="filterWines('all', this)">Alle</button>
+  <button class="filter-btn" onclick="filterWines('done', this)">Oppdatert ✅</button>
+</div>
+
+<div id="loading">Laster inn viner fra databasen...</div>
+<div id="wine-list"></div>
+
+<script>
+const BASE = window.location.origin;
+let allWines = [];
+let updated = new Set();
+
+async function loadWines() {
+  try {
+    const res = await fetch(BASE + '/api/admin-wines');
+    allWines = await res.json();
+    renderWines(allWines);
+  } catch(e) {
+    document.getElementById('loading').textContent = 'Feil: ' + e.message;
+  }
+}
+
+function filterWines(f, btn) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const wines = f === 'done' ? allWines.filter(w => updated.has(w.id)) : allWines;
+  renderWines(wines);
+}
+
+function updateProgress() {
+  document.getElementById('prog-text').textContent = `${updated.size} av ${allWines.length} oppdatert`;
+}
+
+function renderWines(wines) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('prog-count').textContent = `Viser ${wines.length} viner`;
+  updateProgress();
+  const list = document.getElementById('wine-list');
+  list.innerHTML = '';
+
+  wines.forEach(wine => {
+    const div = document.createElement('div');
+    div.className = 'wine-row';
+    div.id = 'wine-' + wine.id;
+
+    const imgUrl = wine.product_id
+      ? `https://bilder.vinmonopolet.no/cache/300x300-0/${wine.product_id}-1.jpg` : '';
+    const vmUrl = wine.product_id ? `https://www.vinmonopolet.no/p/${wine.product_id}` : '#';
+    const searchVal = (wine.producer || wine.name).split('(')[0].split(',')[0].trim();
+
+    div.innerHTML = `
+      <img class="img-preview" id="img-${wine.id}" src="${imgUrl}" onerror="this.src=''">
+      <div class="wine-info">
+        <div class="wine-name">${wine.name}</div>
+        <div class="wine-producer">${wine.producer || ''}</div>
+        <div class="wine-type">${wine.type} · ${wine.country}</div>
+        <div class="current-id">
+          ID: <strong id="pid-${wine.id}">${wine.product_id || '—'}</strong>
+          ${wine.product_id ? `<a href="${vmUrl}" target="_blank"> ↗</a>` : ''}
+          <span id="badge-${wine.id}">${updated.has(wine.id) ? '<span class="status-ok">✅ Oppdatert</span>' : ''}</span>
+        </div>
+      </div>
+      <div class="search-area">
+        <div class="search-row">
+          <input class="search-input" id="q-${wine.id}" value="${searchVal}" placeholder="Søk på vinmonopolet.no...">
+          <button class="btn btn-search" onclick="doSearch(${wine.id})">Søk</button>
+        </div>
+        <div class="results" id="results-${wine.id}"></div>
+        <div id="status-${wine.id}"></div>
+      </div>`;
+
+    list.appendChild(div);
+    div.querySelector('.search-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') doSearch(wine.id);
+    });
+  });
+}
+
+async function doSearch(wineId) {
+  const q = document.getElementById('q-' + wineId).value.trim();
+  if (!q) return;
+  const resDiv = document.getElementById('results-' + wineId);
+  resDiv.innerHTML = '<em style="color:#8a5a50;font-size:12px">Søker...</em>';
+
+  try {
+    const url = `https://www.vinmonopolet.no/vmpws/v2/vmp/search?q=${encodeURIComponent(q)}&searchType=product&currentPage=0&pageSize=8&fields=FULL`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`HTTP ${res.status} — vinmonopolet.no blokkerte kallet`);
+    const data = await res.json();
+    const products = data?.productSearchResult?.products || [];
+
+    if (!products.length) {
+      resDiv.innerHTML = '<em style="color:#c0392b;font-size:12px">Ingen treff</em>';
+      return;
+    }
+
+    resDiv.innerHTML = products.map(p => `
+      <div class="result-item" onclick="selectResult(${wineId}, '${p.code}', this)" data-id="${p.code}">
+        <img class="result-img" src="https://bilder.vinmonopolet.no/cache/300x300-0/${p.code}-1.jpg" onerror="this.style.display='none'">
+        <span class="result-name">${p.name}</span>
+        <span class="result-id">${p.code}${p.price?.value ? ' · ' + p.price.value.toLocaleString('nb-NO') + ' kr' : ''}</span>
+      </div>`).join('');
+
+  } catch(e) {
+    resDiv.innerHTML = `<em style="color:#c0392b;font-size:12px">Feil: ${e.message}</em>`;
+  }
+}
+
+function selectResult(wineId, productId, el) {
+  document.querySelectorAll(`#results-${wineId} .result-item`).forEach(i => i.classList.remove('selected'));
+  el.classList.add('selected');
+  const resDiv = document.getElementById('results-' + wineId);
+  document.querySelector(`#results-${wineId} .apply-row`)?.remove();
+  const row = document.createElement('div');
+  row.className = 'apply-row';
+  row.style.marginTop = '8px';
+  row.innerHTML = `
+    <button class="btn btn-apply" onclick="applyId(${wineId}, '${productId}')">✅ Bruk varenummer ${productId}</button>
+    <button class="btn btn-skip" style="margin-left:6px" onclick="this.parentElement.remove()">Avbryt</button>`;
+  resDiv.appendChild(row);
+}
+
+async function applyId(wineId, productId) {
+  const statusDiv = document.getElementById('status-' + wineId);
+  statusDiv.innerHTML = '<em style="color:#8a5a50;font-size:12px">Lagrer...</em>';
+  try {
+    const res = await fetch(BASE + '/api/update-product-id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wineId, productId }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    updated.add(wineId);
+    document.getElementById('pid-' + wineId).textContent = productId;
+    document.getElementById('img-' + wineId).src =
+      `https://bilder.vinmonopolet.no/cache/300x300-0/${productId}-1.jpg`;
+    document.getElementById(`#results-${wineId}`)?.remove();
+    document.getElementById('results-' + wineId).innerHTML = '';
+    statusDiv.innerHTML = `<span class="status-ok">✅ Lagret — varenummer ${productId}</span>`;
+    document.getElementById('badge-' + wineId).innerHTML = '<span class="status-ok">✅ Oppdatert</span>';
+    updateProgress();
+  } catch(e) {
+    statusDiv.innerHTML = `<span class="status-err">Feil: ${e.message}</span>`;
+  }
+}
+
+loadWines();
+</script>
+</body>
+</html>
