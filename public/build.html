@@ -33,7 +33,7 @@
 
   <div class="card">
     <div class="stat"><div class="stat-val" id="batch-num">0</div><div class="stat-lbl">Batch</div></div>
-    <div class="stat"><div class="stat-val" id="total-batches">62</div><div class="stat-lbl">Totalt</div></div>
+    <div class="stat"><div class="stat-val" id="total-batches">150</div><div class="stat-lbl">Totalt</div></div>
     <div class="stat"><div class="stat-val" id="wine-count">0</div><div class="stat-lbl">Viner i DB</div></div>
     <div class="stat"><div class="stat-val" id="inserted">0</div><div class="stat-lbl">Lagt til</div></div>
     <div class="progress-bar"><div class="progress-fill" id="progress" style="width:0%"></div></div>
@@ -51,7 +51,7 @@
     let running = false;
     let totalInserted = 0;
     let currentBatch = 0;
-    const TOTAL_BATCHES = 62;
+    const TOTAL_BATCHES = 150; // 1 søkterm per batch
 
     function log(msg, type = "info") {
       const div = document.getElementById("log");

@@ -57,18 +57,29 @@ const SEARCHES = [
 ];
 
 async function getVmpProducts(apiKey, searchTerm) {
-  const params = new URLSearchParams({
-    maxResults: "15",
-    start: "0",
-    productShortNameContains: searchTerm.substring(0, 50),
-  });
-  const res = await fetch(
-    `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
-    { headers: { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" } }
-  );
-  if (!res.ok) return [];
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  const headers = { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" };
+  const term = searchTerm.substring(0, 50);
+  let all = [];
+
+  // Fetch up to 3 pages of 50 = 150 products per search term
+  for (let start = 0; start < 150; start += 50) {
+    const params = new URLSearchParams({
+      maxResults: "50",
+      start: String(start),
+      productShortNameContains: term,
+    });
+    const res = await fetch(
+      `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
+      { headers }
+    );
+    if (!res.ok) break;
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < 50) break; // no more pages
+    await new Promise(r => setTimeout(r, 300)); // rate limit
+  }
+  return all;
 }
 
 async function enrichWithClaude(claudeKey, wines) {
@@ -140,9 +151,9 @@ export default async function handler(req, res) {
 
   const sql = neon(process.env.DATABASE_URL);
   const batchIndex = parseInt(req.query.batch || "0");
-  const batchSize  = 3;
+  const batchSize  = 1; // 1 søkterm per kall — unngår Vercel timeout
   const searches   = SEARCHES.slice(batchIndex * batchSize, (batchIndex + 1) * batchSize);
-  const totalBatches = Math.ceil(SEARCHES.length / batchSize);
+  const totalBatches = SEARCHES.length; // 1 per batch
 
   if (searches.length === 0) {
     const count = await sql`SELECT COUNT(*) as c FROM vb_wines`;
@@ -152,6 +163,29 @@ export default async function handler(req, res) {
       message: "Database er ferdig bygget!",
     });
   }
+
+  // Sjekk om denne batchen allerede er kjørt (crash-recovery)
+  try {
+    const done = await sql`
+      SELECT COUNT(*) as c FROM vb_build_log WHERE batch_index = ${batchIndex}
+    `;
+    if (Number(done[0].c) > 0) {
+      const count = await sql`SELECT COUNT(*) as c FROM vb_wines`;
+      const nextBatch = batchIndex + 1;
+      const hasMore = nextBatch < SEARCHES.length;
+      return res.status(200).json({
+        batch: `${batchIndex + 1}/${SEARCHES.length}`,
+        searches,
+        inserted: 0,
+        skipped: 0,
+        totalInDb: Number(count[0].c),
+        hasMore,
+        nextUrl: hasMore ? `/api/build-db?batch=${nextBatch}` : null,
+        details: [{ term: searches[0], skipped: "allerede kjørt" }],
+        alreadyDone: true,
+      });
+    }
+  } catch { /* tabell finnes ikke ennå, fortsett */ }
 
   // Opprett tabell
   await sql`
@@ -183,6 +217,19 @@ export default async function handler(req, res) {
     )
   `;
 
+  // Checkpoint-tabell for å spore fremgang
+  await sql`
+    CREATE TABLE IF NOT EXISTS vb_build_log (
+      id SERIAL PRIMARY KEY,
+      batch_index INTEGER NOT NULL,
+      search_term TEXT NOT NULL,
+      found INTEGER DEFAULT 0,
+      inserted INTEGER DEFAULT 0,
+      skipped INTEGER DEFAULT 0,
+      completed_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
+
   let inserted = 0, skipped = 0;
   const details = [];
 
@@ -197,12 +244,18 @@ export default async function handler(req, res) {
       .map(p => ({ id: p.basic?.productId, name: p.basic?.productShortName }))
       .filter(w => w.id && w.name);
 
+    // Chunk into batches of 20 for Claude
     let enriched = [];
-    try {
-      enriched = await enrichWithClaude(claudeKey, wineInputs);
-    } catch(e) {
-      details.push({ term, error: e.message });
-      continue;
+    const CHUNK = 20;
+    for (let i = 0; i < wineInputs.length; i += CHUNK) {
+      const chunk = wineInputs.slice(i, i + CHUNK);
+      try {
+        const result = await enrichWithClaude(claudeKey, chunk);
+        enriched = enriched.concat(result);
+        await new Promise(r => setTimeout(r, 500));
+      } catch(e) {
+        details.push({ term, chunkError: e.message });
+      }
     }
 
     for (const w of enriched) {
@@ -241,6 +294,13 @@ export default async function handler(req, res) {
     }
 
     details.push({ term, found: vmpProducts.length, enriched: enriched.length });
+
+    // Commit checkpoint — lagrer fremgang etter hver søkterm
+    await sql`
+      INSERT INTO vb_build_log (batch_index, search_term, found, inserted, skipped)
+      VALUES (${batchIndex}, ${term}, ${vmpProducts.length}, ${inserted}, ${skipped})
+    `;
+
     await new Promise(r => setTimeout(r, 300));
   }
 
