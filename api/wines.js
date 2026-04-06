@@ -1,39 +1,50 @@
 import { neon } from "@neondatabase/serverless";
 
-function mapWine(w) {
+// Wine-only category codes from Vinmonopolet open API
+const WINE_TYPES = ["rødvin","hvitvin","rosévin","musserende","champagne",
+  "sterkvin","dessertvin","portvin","sherry","madeira","cava","prosecco",
+  "crémant","sekt","pét-nat","naturvin","oransjevin"];
+
+function isWine(p) {
+  const name = (p.basic?.productShortName || "").toLowerCase();
+  // Exclude accessories and non-wine items explicitly
+  const excluded = ["pose","eske","sekk","bag","gaveeske","handlenett",
+    "tilbehør","korktrekt","glass","termos","boks"];
+  if (excluded.some(x => name.includes(x))) return false;
+  return true; // open API only returns products, filter by search term
+}
+
+function mapProduct(p) {
+  const id = p.basic?.productId || p.productId;
   return {
-    id: w.id,
-    product_id: w.product_id,
-    name: w.name,
-    producer: w.producer,
-    country: w.country,
-    region: w.region,
-    subRegion: w.sub_region,
-    year: w.year,
-    type: w.type,
-    mainCategory: w.type,
-    grapes: w.grapes,
-    alcohol: w.alcohol,
-    volume: w.volume,
-    price: w.price,
-    rating: w.rating,
-    color: w.color,
-    flavor_profile: w.flavor_profile,
-    taste: {
-      fullness:   w.taste_fullness,
-      sweetness:  w.taste_sweetness,
-      freshness:  w.taste_freshness,
-      tannins:    w.taste_tannins,
-      bitterness: w.taste_bitterness,
-    },
-    aromaCategories: typeof w.aromas === "string" ? JSON.parse(w.aromas) : (w.aromas || []),
-    description_no: w.description_no,
-    description_en: w.description_en,
-    imageUrl:      `https://bilder.vinmonopolet.no/cache/300x300-0/${w.product_id}-1.jpg`,
-    imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${w.product_id}-1.jpg`,
-    url:           `https://www.vinmonopolet.no/p/${w.product_id}`,
-    isEco:   w.is_eco   || false,
-    isVegan: w.is_vegan || false,
+    id, product_id: id,
+    name:         p.basic?.productShortName || "",
+    producer:     p.basic?.producerName || "",
+    country:      p.origins?.origin?.country || "",
+    region:       p.origins?.origin?.region || "",
+    subRegion:    p.origins?.origin?.subRegion || "",
+    year:         p.basic?.vintage || null,
+    type:         p.classification?.subProductTypeName || "",
+    mainCategory: p.classification?.mainProductTypeName || "",
+    grapes:       (p.ingredients?.grapes || []).map(g => g.grapeDesc).join(", "),
+    alcohol:      p.basic?.alcoholContent || null,
+    volume:       p.basic?.volume || null,
+    price:        p.prices?.[0]?.salesPrice || null,
+    color:        p.taste?.colour || "",
+    taste: p.taste ? {
+      fullness:   p.taste.fullness,
+      sweetness:  p.taste.sweetness,
+      freshness:  p.taste.freshness,
+      tannins:    p.taste.tannins,
+      bitterness: p.taste.bitterness,
+    } : null,
+    aromaCategories: (p.taste?.aromaCategories || []).map(a => a.aroma),
+    description_no:  p.taste?.characteristicDescription || "",
+    imageUrl:      `https://bilder.vinmonopolet.no/cache/300x300-0/${id}-1.jpg`,
+    imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${id}-1.jpg`,
+    url:           `https://www.vinmonopolet.no/p/${id}`,
+    isEco:         p.logistics?.isEco || false,
+    isVegan:       p.logistics?.isVegan || false,
   };
 }
 
@@ -41,66 +52,61 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
 
-  const sql = neon(process.env.DATABASE_URL);
-  const { search = "", category = "", country = "" } = req.query;
-  const limit = 500; // return all matches
+  const apiKey = process.env.VINMONOPOLET_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: "API key not configured" });
+
+  const { search = "", category = "", country = "", page = "0" } = req.query;
+  const pageNum  = parseInt(page) || 0;
+  const pageSize = 24;
 
   try {
-    let rows;
+    // Build search term — combine user search with category for better results
+    let searchTerm = search || "";
 
-    if (search && category && country) {
-      const q = `%${search}%`;
-      rows = await sql`
-        SELECT * FROM vb_wines
-        WHERE (name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q})
-          AND type ILIKE ${'%' + category + '%'}
-          AND country ILIKE ${'%' + country + '%'}
-        ORDER BY rating DESC LIMIT ${limit}`;
-    } else if (search && category) {
-      const q = `%${search}%`;
-      rows = await sql`
-        SELECT * FROM vb_wines
-        WHERE (name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q})
-          AND type ILIKE ${'%' + category + '%'}
-        ORDER BY rating DESC LIMIT ${limit}`;
-    } else if (search && country) {
-      const q = `%${search}%`;
-      rows = await sql`
-        SELECT * FROM vb_wines
-        WHERE (name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q})
-          AND country ILIKE ${'%' + country + '%'}
-        ORDER BY rating DESC LIMIT ${limit}`;
-    } else if (category && country) {
-      rows = await sql`
-        SELECT * FROM vb_wines
-        WHERE type ILIKE ${'%' + category + '%'}
-          AND country ILIKE ${'%' + country + '%'}
-        ORDER BY rating DESC LIMIT ${limit}`;
-    } else if (search) {
-      const q = `%${search}%`;
-      rows = await sql`
-        SELECT * FROM vb_wines
-        WHERE name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q}
-           OR region ILIKE ${q} OR country ILIKE ${q} OR type ILIKE ${q}
-        ORDER BY rating DESC LIMIT ${limit}`;
-    } else if (category) {
-      rows = await sql`
-        SELECT * FROM vb_wines
-        WHERE type ILIKE ${'%' + category + '%'}
-        ORDER BY rating DESC LIMIT ${limit}`;
-    } else if (country) {
-      rows = await sql`
-        SELECT * FROM vb_wines
-        WHERE country ILIKE ${'%' + country + '%'}
-        ORDER BY rating DESC LIMIT ${limit}`;
-    } else {
-      rows = await sql`
-        SELECT * FROM vb_wines
-        ORDER BY rating DESC LIMIT ${limit}`;
+    // If no search term, use category as search to filter results
+    if (!searchTerm && category) searchTerm = category;
+    // If nothing at all, search for "vin" to get wines
+    if (!searchTerm) searchTerm = "vin";
+
+    const params = new URLSearchParams({
+      maxResults: String(pageSize * 3), // fetch more to filter non-wines
+      start:      String(pageNum * pageSize),
+    });
+    if (searchTerm) params.set("productShortNameContains", searchTerm);
+
+    const response = await fetch(
+      `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
+      { headers: { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" } }
+    );
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `Vinmonopolet API: ${response.status}` });
     }
 
-    const wines = rows.map(mapWine);
-    return res.status(200).json({ wines, total: wines.length });
+    const data = await response.json();
+    if (!Array.isArray(data)) return res.status(200).json({ wines: [], total: 0 });
+
+    let wines = data.filter(isWine).map(mapProduct);
+
+    // Filter by category
+    if (category) {
+      const q = category.toLowerCase();
+      wines = wines.filter(w =>
+        w.mainCategory.toLowerCase().includes(q) ||
+        w.type.toLowerCase().includes(q)
+      );
+    }
+
+    // Filter by country
+    if (country) {
+      const q = country.toLowerCase();
+      wines = wines.filter(w => w.country.toLowerCase().includes(q));
+    }
+
+    // Limit to page size
+    wines = wines.slice(0, pageSize);
+
+    return res.status(200).json({ wines, total: wines.length, page: pageNum });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

@@ -20,67 +20,15 @@ const C = {
   gold2:       "#c8922a",
 };
 
-// ─── VINMONOPOLET KLIENT-API ──────────────────────────────────────────────────
-// Kaller Vinmonopolet direkte fra nettleseren — fungerer fordi CORS er tillatt fra nettlesere
+// ─── VIN-API (via vår Vercel-proxy mot Vinmonopolets åpne API) ───────────────
 const VMP = {
-  async search({ query = "", category = "", currentPage = 0, pageSize = 24 } = {}) {
-    let q = query || ":relevance";
-    if (category) q += `:main_category:${category}`;
-    const url = `https://www.vinmonopolet.no/vmpws/v2/vmp/search?q=${encodeURIComponent(q)}&searchType=product&currentPage=${currentPage}&pageSize=${pageSize}&fields=FULL`;
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error(`Vinmonopolet svarte ${res.status}`);
-    const data = await res.json();
-    return {
-      wines: (data.productSearchResult?.products || []).map(mapProduct),
-      total: data.productSearchResult?.pagination?.totalResults || 0,
-      pages: data.productSearchResult?.pagination?.totalPages || 0,
-    };
-  },
-
-  async getProduct(code) {
-    const url = `https://www.vinmonopolet.no/vmpws/v2/vmp/products/${code}?fields=FULL`;
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error("Fant ikke produktet");
-    const p = await res.json();
-    return mapProduct(p);
+  async search({ query = "", category = "", currentPage = 0 } = {}) {
+    const p = new URLSearchParams({ search: query, category, page: currentPage });
+    const res = await fetch(`/api/wines?${p}`);
+    if (!res.ok) throw new Error(`API-feil: ${res.status}`);
+    return res.json(); // { wines, total, page }
   },
 };
-
-function mapProduct(p) {
-  const code = p.code || "";
-  return {
-    id:           code,
-    product_id:   code,
-    name:         p.name || "",
-    producer:     p.main_producer?.name || "",
-    country:      p.main_country?.name || "",
-    region:       p.district?.name || "",
-    subRegion:    p.subDistrict?.name || "",
-    year:         p.vintage || null,
-    type:         p.main_category?.name || "",
-    mainCategory: p.main_category?.name || "",
-    subType:      p.sub_category?.name || "",
-    grapes:       (p.grapes || []).map(g => g.name).join(", "),
-    alcohol:      p.alcohol?.value || null,
-    volume:       p.volume?.value ? p.volume.value / 100 : null,
-    price:        p.price?.value || null,
-    color:        p.color?.name || "",
-    taste:        p.taste ? {
-      fullness:   p.taste.fullness?.value,
-      sweetness:  p.taste.sweetness?.value,
-      freshness:  p.taste.freshness?.value,
-      tannins:    p.taste.tannins?.value,
-      bitterness: p.taste.bitterness?.value,
-    } : null,
-    aromaCategories: (p.content?.descriptors || []).map(d => d.name),
-    description_no:  p.content?.characteristicDescription || "",
-    isEco:        p.sustainable?.isEco || false,
-    isVegan:      p.sustainable?.isVegan || false,
-    imageUrl:     `https://bilder.vinmonopolet.no/cache/300x300-0/${code}-1.jpg`,
-    imageUrlLarge:`https://bilder.vinmonopolet.no/cache/515x515-0/${code}-1.jpg`,
-    url:          `https://www.vinmonopolet.no/p/${code}`,
-  };
-}
 
 // ─── BRUKER-API (kun notater og kjeller) ─────────────────────────────────────
 const API = {
@@ -512,14 +460,16 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
       const data = await API.scanLabel(base64, "image/jpeg");
       if (data.error) { setError(data.error); return; }
 
-      // Search Vinmonopolet directly from browser with Claude's identified info
+      // Search via proxy with Claude's identified info
       const wineInfo = data.wineInfo || {};
       const searchTerm = wineInfo.producer || wineInfo.name || "";
       let wines = [];
       if (searchTerm) {
         try {
-          const vmpResult = await VMP.search({ query: searchTerm, pageSize: 8 });
-          wines = vmpResult.wines;
+          const p = new URLSearchParams({ search: searchTerm });
+          const r = await fetch(`/api/wines?${p}`);
+          const vmpResult = await r.json();
+          wines = vmpResult.wines || [];
         } catch { wines = []; }
       }
       setResult({ wineInfo, wines });
@@ -729,10 +679,10 @@ export default function VinApp() {
   const doSearch = useCallback(async (q, cat, pg) => {
     setLoading(true);
     try {
-      const result = await VMP.search({ query: q, category: cat, currentPage: pg, pageSize: 24 });
-      setWines(result.wines);
-      setTotalPages(result.pages);
-      setTotalWines(result.total);
+      const result = await VMP.search({ query: q, category: cat, currentPage: pg });
+      setWines(result.wines || []);
+      setTotalPages(0);
+      setTotalWines(result.total || 0);
     } catch(e) {
       setWines([]);
     }
