@@ -59,13 +59,24 @@ export default async function handler(req, res) {
     const responseText = await claudeRes.text();
 
     if (!claudeRes.ok) {
-      return res.status(500).json({
-        error: `Claude feil: ${claudeRes.status}`,
-        claudeResponse: responseText.substring(0, 500),
-        sizeKB,
-        base64Start: base64Data.substring(0, 30),
-        base64End: base64Data.substring(base64Data.length - 10),
-      });
+      let claudeError;
+      try { claudeError = JSON.parse(responseText); } catch { claudeError = {}; }
+      const msg = claudeError?.error?.message || "";
+
+      let userMessage;
+      if (claudeRes.status === 400 && msg.includes("credit")) {
+        userMessage = "Ingen credits igjen på Anthropic-kontoen. Gå til console.anthropic.com og fyll på.";
+      } else if (claudeRes.status === 401) {
+        userMessage = "Claude API-nøkkelen er ugyldig. Sjekk ANTHROPIC_API_KEY i Vercel.";
+      } else if (claudeRes.status === 429) {
+        userMessage = "For mange forespørsler til Claude. Vent litt og prøv igjen.";
+      } else if (claudeRes.status === 529) {
+        userMessage = "Claude er overbelastet akkurat nå. Prøv igjen om litt.";
+      } else {
+        userMessage = `Claude-feil (${claudeRes.status}): ${msg || "Ukjent feil"}`;
+      }
+
+      return res.status(500).json({ error: userMessage, sizeKB });
     }
 
     const claudeData = JSON.parse(responseText);
