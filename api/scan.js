@@ -13,8 +13,16 @@ export default async function handler(req, res) {
   const claudeKey = process.env.ANTHROPIC_API_KEY;
   if (!claudeKey) return res.status(500).json({ error: "Claude API key not configured" });
 
+  // Strip base64 header and get just the data
+  const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+
+  // Detect media type
+  const mediaType = image.startsWith("data:image/png") ? "image/png"
+    : image.startsWith("data:image/webp") ? "image/webp"
+    : "image/jpeg";
+
   try {
-    // Step 1: Claude identifies the wine from the label
+    // Step 1: Claude identifies the wine
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -24,75 +32,91 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 400,
+        max_tokens: 500,
         messages: [{
           role: "user",
           content: [
             {
               type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/jpeg",
-                data: image.replace(/^data:image\/\w+;base64,/, ""),
-              },
+              source: { type: "base64", media_type: mediaType, data: base64Data },
             },
             {
               type: "text",
-              text: `Look at this wine label. Respond ONLY with a JSON object, no other text:
+              text: `This is a wine bottle label. Extract wine information and respond ONLY with valid JSON, nothing else before or after:
 {
-  "name": "full wine name",
-  "producer": "producer/winery name",
-  "country": "country in Norwegian (e.g. Frankrike, Italia, Spania)",
+  "name": "wine name as on label",
+  "producer": "producer or winery name",
+  "country": "country in Norwegian (Frankrike, Italia, Spania, USA, Australia, etc)",
   "region": "wine region",
-  "year": year as number or null,
-  "type": "Rødvin or Hvitvin or Rosévin or Musserende vin",
-  "grapes": "grape varieties if visible",
-  "searchTerms": ["3-4 short search terms to find this wine in a database"],
-  "confidence": "high/medium/low"
-}`
+  "year": 2019,
+  "type": "Rødvin",
+  "grapes": "grape varieties",
+  "confidence": "high"
+}
+For type use exactly one of: Rødvin, Hvitvin, Rosévin, Musserende vin, Champagne, Sterkvin, Dessertvin
+If year not visible use null. Confidence: high/medium/low.`,
             }
           ]
         }]
       }),
     });
 
+    if (!claudeRes.ok) {
+      const errText = await claudeRes.text();
+      return res.status(500).json({ error: `Claude API error: ${claudeRes.status}`, detail: errText });
+    }
+
     const claudeData = await claudeRes.json();
-    const rawText = claudeData.content?.[0]?.text || "{}";
-    let wineInfo;
+    const rawText = claudeData.content?.[0]?.text || "";
+
+    let wineInfo = {};
     try {
       const m = rawText.match(/\{[\s\S]*\}/);
-      wineInfo = JSON.parse(m?.[0] || "{}");
+      if (m) wineInfo = JSON.parse(m[0]);
     } catch {
-      wineInfo = { confidence: "low" };
+      wineInfo = { name: rawText.substring(0, 100), confidence: "low" };
     }
 
-    // Step 2: Search our database
+    // Step 2: Search our database with multiple strategies
     const sql = neon(process.env.DATABASE_URL);
     let wines = [];
+    const seen = new Set();
 
-    const searchTerms = [
-      wineInfo.name,
-      wineInfo.producer,
-      ...(wineInfo.searchTerms || []),
-    ].filter(Boolean);
+    const addResults = (rows) => {
+      for (const w of rows) {
+        if (!seen.has(w.id)) { seen.add(w.id); wines.push(w); }
+      }
+    };
 
-    for (const term of searchTerms) {
-      if (wines.length >= 5) break;
-      const q = `%${term.substring(0, 50)}%`;
-      const rows = await sql`
-        SELECT * FROM vb_wines
-        WHERE name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q}
-        ORDER BY rating DESC LIMIT 5`;
-      wines = [...wines, ...rows];
+    // Search by producer name (most reliable)
+    if (wineInfo.producer) {
+      const q = `%${wineInfo.producer.substring(0, 40)}%`;
+      const rows = await sql`SELECT * FROM vb_wines WHERE producer ILIKE ${q} ORDER BY rating DESC LIMIT 8`;
+      addResults(rows);
     }
 
-    // Deduplicate
-    const seen = new Set();
-    wines = wines.filter(w => {
-      if (seen.has(w.id)) return false;
-      seen.add(w.id);
-      return true;
-    }).slice(0, 6).map(w => ({
+    // Search by wine name
+    if (wineInfo.name && wines.length < 6) {
+      const q = `%${wineInfo.name.substring(0, 40)}%`;
+      const rows = await sql`SELECT * FROM vb_wines WHERE name ILIKE ${q} ORDER BY rating DESC LIMIT 6`;
+      addResults(rows);
+    }
+
+    // Search by region
+    if (wineInfo.region && wines.length < 4) {
+      const q = `%${wineInfo.region.substring(0, 30)}%`;
+      const rows = await sql`SELECT * FROM vb_wines WHERE region ILIKE ${q} OR sub_region ILIKE ${q} ORDER BY rating DESC LIMIT 4`;
+      addResults(rows);
+    }
+
+    // Fallback: search by country + type
+    if (wines.length === 0 && wineInfo.country) {
+      const q = `%${wineInfo.country}%`;
+      const rows = await sql`SELECT * FROM vb_wines WHERE country ILIKE ${q} ORDER BY rating DESC LIMIT 6`;
+      addResults(rows);
+    }
+
+    const mapped = wines.slice(0, 8).map(w => ({
       id: w.id,
       product_id: w.product_id,
       name: w.name,
@@ -110,23 +134,28 @@ export default async function handler(req, res) {
       rating: w.rating,
       color: w.color,
       flavor_profile: w.flavor_profile,
-      taste: { fullness: w.taste_fullness, sweetness: w.taste_sweetness, freshness: w.taste_freshness, tannins: w.taste_tannins, bitterness: w.taste_bitterness },
+      taste: {
+        fullness: w.taste_fullness, sweetness: w.taste_sweetness,
+        freshness: w.taste_freshness, tannins: w.taste_tannins, bitterness: w.taste_bitterness,
+      },
       aromaCategories: typeof w.aromas === "string" ? JSON.parse(w.aromas) : (w.aromas || []),
       description_no: w.description_no,
       description_en: w.description_en,
       imageUrl:      `https://bilder.vinmonopolet.no/cache/300x300-0/${w.product_id}-1.jpg`,
       imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${w.product_id}-1.jpg`,
       url:           `https://www.vinmonopolet.no/p/${w.product_id}`,
-      isEco: w.is_eco || false, isVegan: w.is_vegan || false,
+      isEco: w.is_eco || false,
+      isVegan: w.is_vegan || false,
     }));
 
     return res.status(200).json({
-      identified: wines.length > 0,
+      identified: mapped.length > 0,
       wineInfo,
-      wines,
+      wines: mapped,
+      debug: { rawClaudeText: rawText.substring(0, 200) },
     });
 
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message, stack: err.stack?.substring(0, 300) });
   }
 }
