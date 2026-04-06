@@ -434,21 +434,43 @@ function LabelScanner({ onSelectWine, onClose, isMobile }) {
   const [error, setError] = useState("");
   const fileRef = useRef();
 
+  // Compress hard — max 400px, quality 0.5 → typically 20-40KB
+  const compressImage = (file) => new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 400;
+      let { width, height } = img;
+      const ratio = Math.min(MAX / width, MAX / height, 1);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.5));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+
   const handleImage = async (file) => {
     if (!file) return;
     setScanning(true); setError(""); setResult(null);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const base64 = e.target.result;
-        const data = await API.scanLabel(base64);
+    try {
+      const compressed = await compressImage(file);
+      // Strip the data URL header — send only raw base64
+      const base64 = compressed.replace(/^data:image\/\w+;base64,/, "");
+      const data = await API.scanLabel(base64);
+      if (data.error) {
+        setError(`Feil: ${data.error}`);
+      } else {
         setResult(data);
-      } catch {
-        setError("Feil ved skanning. Prøv igjen.");
       }
-      setScanning(false);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      setError("Feil ved skanning. Prøv igjen.");
+    }
+    setScanning(false);
   };
 
   const content = (
