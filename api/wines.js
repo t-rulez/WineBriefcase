@@ -1,52 +1,5 @@
-import { neon } from "@neondatabase/serverless";
-
-// Wine-only category codes from Vinmonopolet open API
-const WINE_TYPES = ["rødvin","hvitvin","rosévin","musserende","champagne",
-  "sterkvin","dessertvin","portvin","sherry","madeira","cava","prosecco",
-  "crémant","sekt","pét-nat","naturvin","oransjevin"];
-
-function isWine(p) {
-  const name = (p.basic?.productShortName || "").toLowerCase();
-  // Exclude accessories and non-wine items explicitly
-  const excluded = ["pose","eske","sekk","bag","gaveeske","handlenett",
-    "tilbehør","korktrekt","glass","termos","boks"];
-  if (excluded.some(x => name.includes(x))) return false;
-  return true; // open API only returns products, filter by search term
-}
-
-function mapProduct(p) {
-  const id = p.basic?.productId || p.productId;
-  return {
-    id, product_id: id,
-    name:         p.basic?.productShortName || "",
-    producer:     p.basic?.producerName || "",
-    country:      p.origins?.origin?.country || "",
-    region:       p.origins?.origin?.region || "",
-    subRegion:    p.origins?.origin?.subRegion || "",
-    year:         p.basic?.vintage || null,
-    type:         p.classification?.subProductTypeName || "",
-    mainCategory: p.classification?.mainProductTypeName || "",
-    grapes:       (p.ingredients?.grapes || []).map(g => g.grapeDesc).join(", "),
-    alcohol:      p.basic?.alcoholContent || null,
-    volume:       p.basic?.volume || null,
-    price:        p.prices?.[0]?.salesPrice || null,
-    color:        p.taste?.colour || "",
-    taste: p.taste ? {
-      fullness:   p.taste.fullness,
-      sweetness:  p.taste.sweetness,
-      freshness:  p.taste.freshness,
-      tannins:    p.taste.tannins,
-      bitterness: p.taste.bitterness,
-    } : null,
-    aromaCategories: (p.taste?.aromaCategories || []).map(a => a.aroma),
-    description_no:  p.taste?.characteristicDescription || "",
-    imageUrl:      `https://bilder.vinmonopolet.no/cache/300x300-0/${id}-1.jpg`,
-    imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${id}-1.jpg`,
-    url:           `https://www.vinmonopolet.no/p/${id}`,
-    isEco:         p.logistics?.isEco || false,
-    isVegan:       p.logistics?.isVegan || false,
-  };
-}
+// Proxy mot Vinmonopolets åpne API
+// Søker etter produkter og henter detaljer for hvert resultat
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -59,36 +12,104 @@ export default async function handler(req, res) {
   const pageNum  = parseInt(page) || 0;
   const pageSize = 24;
 
+  const headers = {
+    "Ocp-Apim-Subscription-Key": apiKey,
+    "Accept": "application/json",
+  };
+
   try {
-    // Build search term — combine user search with category for better results
-    let searchTerm = search || "";
-
-    // If no search term, use category as search to filter results
-    if (!searchTerm && category) searchTerm = category;
-    // If nothing at all, search for "vin" to get wines
-    if (!searchTerm) searchTerm = "vin";
-
+    // Steg 1: Søk etter produkter — returnerer ID og navn
+    const searchTerm = search || category || "vin";
     const params = new URLSearchParams({
-      maxResults: String(pageSize * 3), // fetch more to filter non-wines
-      start:      String(pageNum * pageSize),
+      maxResults: "50",
+      start: String(pageNum * pageSize),
+      productShortNameContains: searchTerm,
     });
-    if (searchTerm) params.set("productShortNameContains", searchTerm);
 
-    const response = await fetch(
+    const searchRes = await fetch(
       `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
-      { headers: { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" } }
+      { headers }
     );
 
-    if (!response.ok) {
-      return res.status(response.status).json({ error: `Vinmonopolet API: ${response.status}` });
+    if (!searchRes.ok) {
+      return res.status(searchRes.status).json({ error: `API-feil: ${searchRes.status}` });
     }
 
-    const data = await response.json();
-    if (!Array.isArray(data)) return res.status(200).json({ wines: [], total: 0 });
+    const searchData = await searchRes.json();
+    if (!Array.isArray(searchData) || searchData.length === 0) {
+      return res.status(200).json({ wines: [], total: 0, page: pageNum });
+    }
 
-    let wines = data.filter(isWine).map(mapProduct);
+    // Steg 2: Hent detaljer for hvert produkt via productId-oppslag
+    // Batch opp til 20 IDer per kall
+    const ids = searchData.map(p => p.basic?.productId).filter(Boolean).slice(0, pageSize);
 
-    // Filter by category
+    // Fetch details in batches of 10
+    const detailMap = {};
+    const batchSize = 10;
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize);
+      const batchPromises = batch.map(id =>
+        fetch(`https://apis.vinmonopolet.no/products/v0/details-normal?productId=${id}`, { headers })
+          .then(r => r.ok ? r.json() : [])
+          .then(d => Array.isArray(d) && d[0] ? detailMap[id] = d[0] : null)
+          .catch(() => null)
+      );
+      await Promise.all(batchPromises);
+    }
+
+    // Steg 3: Map til vår format
+    let wines = ids.map(id => {
+      const p = detailMap[id];
+      if (!p) {
+        // Fallback: bruk bare navn fra søkeresultat
+        const basic = searchData.find(s => s.basic?.productId === id);
+        return {
+          id, product_id: id,
+          name: basic?.basic?.productShortName || "",
+          producer: "", country: "", region: "", subRegion: "",
+          year: null, type: "", mainCategory: "", grapes: "",
+          alcohol: null, volume: null, price: null, color: "",
+          taste: null, aromaCategories: [], description_no: "",
+          imageUrl: `https://bilder.vinmonopolet.no/cache/300x300-0/${id}-1.jpg`,
+          imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${id}-1.jpg`,
+          url: `https://www.vinmonopolet.no/p/${id}`,
+          isEco: false, isVegan: false,
+        };
+      }
+      return {
+        id, product_id: id,
+        name:         p.basic?.productShortName || "",
+        producer:     p.basic?.producerName || "",
+        country:      p.origins?.origin?.country || "",
+        region:       p.origins?.origin?.region || "",
+        subRegion:    p.origins?.origin?.subRegion || "",
+        year:         p.basic?.vintage || null,
+        type:         p.classification?.subProductTypeName || "",
+        mainCategory: p.classification?.mainProductTypeName || "",
+        grapes:       (p.ingredients?.grapes || []).map(g => g.grapeDesc).join(", "),
+        alcohol:      p.basic?.alcoholContent || null,
+        volume:       p.basic?.volume || null,
+        price:        p.prices?.[0]?.salesPrice || null,
+        color:        p.taste?.colour || "",
+        taste: p.taste ? {
+          fullness:   p.taste.fullness,
+          sweetness:  p.taste.sweetness,
+          freshness:  p.taste.freshness,
+          tannins:    p.taste.tannins,
+          bitterness: p.taste.bitterness,
+        } : null,
+        aromaCategories: (p.taste?.aromaCategories || []).map(a => a.aroma),
+        description_no:  p.taste?.characteristicDescription || "",
+        imageUrl:      `https://bilder.vinmonopolet.no/cache/300x300-0/${id}-1.jpg`,
+        imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${id}-1.jpg`,
+        url:           `https://www.vinmonopolet.no/p/${id}`,
+        isEco:         p.logistics?.isEco || false,
+        isVegan:       p.logistics?.isVegan || false,
+      };
+    });
+
+    // Filter etter kategori og land
     if (category) {
       const q = category.toLowerCase();
       wines = wines.filter(w =>
@@ -96,17 +117,13 @@ export default async function handler(req, res) {
         w.type.toLowerCase().includes(q)
       );
     }
-
-    // Filter by country
     if (country) {
       const q = country.toLowerCase();
       wines = wines.filter(w => w.country.toLowerCase().includes(q));
     }
 
-    // Limit to page size
-    wines = wines.slice(0, pageSize);
-
     return res.status(200).json({ wines, total: wines.length, page: pageNum });
+
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
