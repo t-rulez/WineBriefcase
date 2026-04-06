@@ -428,11 +428,12 @@ function TastingCard({ entry, onDelete, onEdit }) {
 }
 
 // ─── LABEL SCANNER ────────────────────────────────────────────────────────────
-function LabelScanner({ onSelectWine, onClose, isMobile }) {
+function LabelScanner({ onScanComplete, onClose, isMobile }) {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const fileRef = useRef();
+  const cameraRef = useRef();
 
   // Compress hard — max 400px, quality 0.5 → typically 20-40KB
   const compressImage = (file) => new Promise((resolve, reject) => {
@@ -488,13 +489,15 @@ function LabelScanner({ onSelectWine, onClose, isMobile }) {
           <p style={{ fontSize: 14, color: C.textMid, lineHeight: 1.6, marginBottom: 16 }}>
             Ta et bilde av etiketten på vinen. Claude AI vil identifisere vinen og slå den opp mot Vinmonopolets sortiment.
           </p>
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={e => handleImage(e.target.files?.[0])} style={{ display: "none" }} />
+          {/* Two hidden inputs — one for library, one for camera */}
+          <input ref={fileRef} type="file" accept="image/*" onChange={e => handleImage(e.target.files?.[0])} style={{ display: "none" }} />
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={e => handleImage(e.target.files?.[0])} style={{ display: "none" }} />
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => { fileRef.current.removeAttribute("capture"); fileRef.current.click(); }}
+            <button onClick={() => fileRef.current.click()}
               style={{ flex: 1, background: C.bg, color: C.text, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: "14px", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
               📁 Velg fra bibliotek
             </button>
-            <button onClick={() => { fileRef.current.setAttribute("capture", "environment"); fileRef.current.click(); }}
+            <button onClick={() => cameraRef.current.click()}
               style={{ flex: 1, background: C.primary, color: "#fff", border: "none", borderRadius: 12, padding: "14px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
               <IcoCamera s={16} /> Ta bilde
             </button>
@@ -531,33 +534,31 @@ function LabelScanner({ onSelectWine, onClose, isMobile }) {
           )}
 
           {result.wines?.length > 0 ? (
-            <>
-              <div style={{ fontSize: 13, color: C.textSoft, marginBottom: 10 }}>Fant {result.wines.length} treff på Vinmonopolet:</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }}>
-                {result.wines.map(wine => (
-                  <button key={wine.id} onClick={() => { onSelectWine(wine); onClose(); }}
-                    style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 12px", background: "#fff", border: `1.5px solid ${C.border}`, borderRadius: 10, cursor: "pointer", textAlign: "left", fontFamily: "inherit", width: "100%" }}>
-                    <WineBottleImg wine={wine} size={32} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{wine.name}</div>
-                      <div style={{ fontSize: 11, color: C.textSoft }}>{wine.country} {wine.year && `· ${wine.year}`} {wine.price && `· ${wine.price.toLocaleString("nb-NO")} kr`}</div>
-                    </div>
-                  </button>
-                ))}
+            <div>
+              <div style={{ fontSize: 13, color: C.textSoft, marginBottom: 14 }}>
+                Fant <strong>{result.wines.length}</strong> treff — vises nå i vinlisten
               </div>
-            </>
+              <button
+                onClick={() => onScanComplete(result.wines, result.wineInfo)}
+                style={{ width: "100%", background: C.primary, color: "#fff", border: "none", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginBottom: 10 }}>
+                Vis {result.wines.length} {result.wines.length === 1 ? "vin" : "viner"} i databasen →
+              </button>
+              <button onClick={() => { setResult(null); setError(""); }}
+                style={{ width: "100%", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Skann et nytt bilde
+              </button>
+            </div>
           ) : (
             <div style={{ textAlign: "center", padding: "20px", background: C.bg, borderRadius: 12 }}>
               <div style={{ fontSize: 30, marginBottom: 8 }}>🔍</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 6 }}>Ingen treff på Vinmonopolet</div>
-              <div style={{ fontSize: 12, color: C.textSoft }}>Prøv å søke manuelt i databasen</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 6 }}>Ingen treff i databasen</div>
+              <div style={{ fontSize: 12, color: C.textSoft, marginBottom: 14 }}>Prøv å søke manuelt</div>
+              <button onClick={() => { setResult(null); setError(""); }}
+                style={{ width: "100%", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Skann et nytt bilde
+              </button>
             </div>
           )}
-
-          <button onClick={() => { setResult(null); setError(""); }}
-            style={{ marginTop: 14, width: "100%", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-            Skann et nytt bilde
-          </button>
         </div>
       )}
     </>
@@ -1015,7 +1016,16 @@ export default function VinApp() {
         <TastingSheet wine={addingTasting} onClose={() => { setAddingTasting(null); setEditingTasting(null); }} onSave={saveTasting} isMobile={!isDesktop} existing={editingTasting} />
       )}
       {showScanner && (
-        <LabelScanner onSelectWine={(w) => { setSelectedWine(w); }} onClose={() => setShowScanner(false)} isMobile={!isDesktop} />
+        <LabelScanner
+          onScanComplete={(scanWines, wineInfo) => {
+            setShowScanner(false);
+            handleTabSwitch("database");
+            setWines(scanWines);
+            setSearch(wineInfo.producer || wineInfo.name || "");
+          }}
+          onClose={() => setShowScanner(false)}
+          isMobile={!isDesktop}
+        />
       )}
       <FilterPanel isMobile={!isDesktop} open={filterOpen} onClose={() => setFilterOpen(false)} filterCat={filterCat} setFilterCat={setFilterCat} filterCountry={filterCountry} setFilterCountry={setFilterCountry} />
     </div>
