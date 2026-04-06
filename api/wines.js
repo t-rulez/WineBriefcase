@@ -1,129 +1,72 @@
-// Proxy mot Vinmonopolets åpne API
-// Søker etter produkter og henter detaljer for hvert resultat
+import { neon } from "@neondatabase/serverless";
+
+function mapWine(w) {
+  return {
+    id:           w.id,
+    product_id:   w.product_id,
+    name:         w.name,
+    producer:     w.producer,
+    country:      w.country,
+    region:       w.region,
+    subRegion:    w.sub_region,
+    year:         w.year,
+    type:         w.type,
+    mainCategory: w.type,
+    grapes:       w.grapes,
+    alcohol:      w.alcohol,
+    volume:       w.volume,
+    price:        w.price,
+    color:        w.color,
+    flavor_profile: w.flavor_profile,
+    taste: {
+      fullness:   w.taste_fullness,
+      sweetness:  w.taste_sweetness,
+      freshness:  w.taste_freshness,
+      tannins:    w.taste_tannins,
+      bitterness: w.taste_bitterness,
+    },
+    aromaCategories: typeof w.aromas === "string" ? JSON.parse(w.aromas) : (w.aromas || []),
+    description_no:  w.description_no,
+    imageUrl:      `https://bilder.vinmonopolet.no/cache/300x300-0/${w.product_id}-1.jpg`,
+    imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${w.product_id}-1.jpg`,
+    url:           `https://www.vinmonopolet.no/p/${w.product_id}`,
+    isEco:         w.is_eco  || false,
+    isVegan:       w.is_vegan || false,
+  };
+}
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
 
-  const apiKey = process.env.VINMONOPOLET_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: "API key not configured" });
-
-  const { search = "", category = "", country = "", page = "0" } = req.query;
-  const pageNum  = parseInt(page) || 0;
-  const pageSize = 24;
-
-  const headers = {
-    "Ocp-Apim-Subscription-Key": apiKey,
-    "Accept": "application/json",
-  };
+  const sql = neon(process.env.DATABASE_URL);
+  const { search = "", category = "", country = "" } = req.query;
 
   try {
-    // Steg 1: Søk etter produkter — returnerer ID og navn
-    const searchTerm = search || category || "vin";
-    const params = new URLSearchParams({
-      maxResults: "50",
-      start: String(pageNum * pageSize),
-      productShortNameContains: searchTerm,
-    });
+    let rows;
+    const q = `%${search}%`;
+    const cat = `%${category}%`;
+    const ctr = `%${country}%`;
 
-    const searchRes = await fetch(
-      `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
-      { headers }
-    );
-
-    if (!searchRes.ok) {
-      return res.status(searchRes.status).json({ error: `API-feil: ${searchRes.status}` });
+    if (search && category && country) {
+      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q}) AND type ILIKE ${cat} AND country ILIKE ${ctr} ORDER BY name LIMIT 100`;
+    } else if (search && category) {
+      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q}) AND type ILIKE ${cat} ORDER BY name LIMIT 100`;
+    } else if (search && country) {
+      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q}) AND country ILIKE ${ctr} ORDER BY name LIMIT 100`;
+    } else if (category && country) {
+      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cat} AND country ILIKE ${ctr} ORDER BY name LIMIT 100`;
+    } else if (search) {
+      rows = await sql`SELECT * FROM vb_wines WHERE name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q} OR country ILIKE ${q} OR type ILIKE ${q} ORDER BY name LIMIT 100`;
+    } else if (category) {
+      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cat} ORDER BY name LIMIT 100`;
+    } else if (country) {
+      rows = await sql`SELECT * FROM vb_wines WHERE country ILIKE ${ctr} ORDER BY name LIMIT 100`;
+    } else {
+      rows = await sql`SELECT * FROM vb_wines ORDER BY name LIMIT 100`;
     }
 
-    const searchData = await searchRes.json();
-    if (!Array.isArray(searchData) || searchData.length === 0) {
-      return res.status(200).json({ wines: [], total: 0, page: pageNum });
-    }
-
-    // Steg 2: Hent detaljer for hvert produkt via productId-oppslag
-    // Batch opp til 20 IDer per kall
-    const ids = searchData.map(p => p.basic?.productId).filter(Boolean).slice(0, pageSize);
-
-    // Fetch details in batches of 10
-    const detailMap = {};
-    const batchSize = 10;
-    for (let i = 0; i < ids.length; i += batchSize) {
-      const batch = ids.slice(i, i + batchSize);
-      const batchPromises = batch.map(id =>
-        fetch(`https://apis.vinmonopolet.no/products/v0/details-normal?productId=${id}`, { headers })
-          .then(r => r.ok ? r.json() : [])
-          .then(d => Array.isArray(d) && d[0] ? detailMap[id] = d[0] : null)
-          .catch(() => null)
-      );
-      await Promise.all(batchPromises);
-    }
-
-    // Steg 3: Map til vår format
-    let wines = ids.map(id => {
-      const p = detailMap[id];
-      if (!p) {
-        // Fallback: bruk bare navn fra søkeresultat
-        const basic = searchData.find(s => s.basic?.productId === id);
-        return {
-          id, product_id: id,
-          name: basic?.basic?.productShortName || "",
-          producer: "", country: "", region: "", subRegion: "",
-          year: null, type: "", mainCategory: "", grapes: "",
-          alcohol: null, volume: null, price: null, color: "",
-          taste: null, aromaCategories: [], description_no: "",
-          imageUrl: `https://bilder.vinmonopolet.no/cache/300x300-0/${id}-1.jpg`,
-          imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${id}-1.jpg`,
-          url: `https://www.vinmonopolet.no/p/${id}`,
-          isEco: false, isVegan: false,
-        };
-      }
-      return {
-        id, product_id: id,
-        name:         p.basic?.productShortName || "",
-        producer:     p.basic?.producerName || "",
-        country:      p.origins?.origin?.country || "",
-        region:       p.origins?.origin?.region || "",
-        subRegion:    p.origins?.origin?.subRegion || "",
-        year:         p.basic?.vintage || null,
-        type:         p.classification?.subProductTypeName || "",
-        mainCategory: p.classification?.mainProductTypeName || "",
-        grapes:       (p.ingredients?.grapes || []).map(g => g.grapeDesc).join(", "),
-        alcohol:      p.basic?.alcoholContent || null,
-        volume:       p.basic?.volume || null,
-        price:        p.prices?.[0]?.salesPrice || null,
-        color:        p.taste?.colour || "",
-        taste: p.taste ? {
-          fullness:   p.taste.fullness,
-          sweetness:  p.taste.sweetness,
-          freshness:  p.taste.freshness,
-          tannins:    p.taste.tannins,
-          bitterness: p.taste.bitterness,
-        } : null,
-        aromaCategories: (p.taste?.aromaCategories || []).map(a => a.aroma),
-        description_no:  p.taste?.characteristicDescription || "",
-        imageUrl:      `https://bilder.vinmonopolet.no/cache/300x300-0/${id}-1.jpg`,
-        imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${id}-1.jpg`,
-        url:           `https://www.vinmonopolet.no/p/${id}`,
-        isEco:         p.logistics?.isEco || false,
-        isVegan:       p.logistics?.isVegan || false,
-      };
-    });
-
-    // Filter etter kategori og land
-    if (category) {
-      const q = category.toLowerCase();
-      wines = wines.filter(w =>
-        w.mainCategory.toLowerCase().includes(q) ||
-        w.type.toLowerCase().includes(q)
-      );
-    }
-    if (country) {
-      const q = country.toLowerCase();
-      wines = wines.filter(w => w.country.toLowerCase().includes(q));
-    }
-
-    return res.status(200).json({ wines, total: wines.length, page: pageNum });
-
+    return res.status(200).json({ wines: rows.map(mapWine), total: rows.length });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

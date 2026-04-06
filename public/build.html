@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VinBriefcase — Bygg database</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Georgia, serif; background: #3a0f0f; color: #fff; padding: 30px; min-height: 100vh; }
+    h1 { color: #c8922a; margin-bottom: 6px; }
+    .subtitle { color: rgba(255,255,255,0.6); font-size: 13px; margin-bottom: 30px; }
+    .card { background: rgba(255,255,255,0.08); border-radius: 14px; padding: 24px; margin-bottom: 16px; }
+    .stat { display: inline-block; margin-right: 24px; }
+    .stat-val { font-size: 32px; font-weight: 800; color: #c8922a; }
+    .stat-lbl { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.1em; }
+    .progress-bar { height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; margin: 16px 0; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #c8922a, #e6a030); border-radius: 4px; transition: width 0.5s; }
+    .log { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 14px; font-size: 12px; font-family: monospace; max-height: 300px; overflow-y: auto; }
+    .log-line { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .log-line.ok { color: #81c784; }
+    .log-line.err { color: #ef9a9a; }
+    .log-line.info { color: rgba(255,255,255,0.6); }
+    .btn { padding: 14px 28px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .btn-start { background: #c8922a; color: #fff; }
+    .btn-start:hover { background: #e6a030; }
+    .btn-start:disabled { opacity: 0.5; cursor: wait; }
+    .done-msg { background: #2e7d32; color: #fff; border-radius: 10px; padding: 16px 24px; font-size: 16px; font-weight: 700; display: none; }
+  </style>
+</head>
+<body>
+  <h1>🍷 VinBriefcase — Bygg vinedatabase</h1>
+  <p class="subtitle">Henter varenumre fra Vinmonopolet og genererer detaljer med Claude AI</p>
+
+  <div class="card">
+    <div class="stat"><div class="stat-val" id="batch-num">0</div><div class="stat-lbl">Batch</div></div>
+    <div class="stat"><div class="stat-val" id="total-batches">62</div><div class="stat-lbl">Totalt</div></div>
+    <div class="stat"><div class="stat-val" id="wine-count">0</div><div class="stat-lbl">Viner i DB</div></div>
+    <div class="stat"><div class="stat-val" id="inserted">0</div><div class="stat-lbl">Lagt til</div></div>
+    <div class="progress-bar"><div class="progress-fill" id="progress" style="width:0%"></div></div>
+    <button class="btn btn-start" id="startBtn" onclick="start()">▶ Start bygging</button>
+  </div>
+
+  <div class="card">
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="done-msg" id="done">✅ Database ferdig bygget!</div>
+
+  <script>
+    const BASE = window.location.origin;
+    let running = false;
+    let totalInserted = 0;
+    let currentBatch = 0;
+    const TOTAL_BATCHES = 62;
+
+    function log(msg, type = "info") {
+      const div = document.getElementById("log");
+      const line = document.createElement("div");
+      line.className = "log-line " + type;
+      line.textContent = new Date().toTimeString().slice(0,8) + " " + msg;
+      div.appendChild(line);
+      div.scrollTop = div.scrollHeight;
+    }
+
+    function updateUI(batch, wines, inserted) {
+      document.getElementById("batch-num").textContent = batch;
+      document.getElementById("wine-count").textContent = wines;
+      document.getElementById("inserted").textContent = totalInserted;
+      const pct = Math.round((batch / TOTAL_BATCHES) * 100);
+      document.getElementById("progress").style.width = pct + "%";
+    }
+
+    async function runBatch(batchIndex) {
+      const res = await fetch(`${BASE}/api/build-db?batch=${batchIndex}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    async function start() {
+      if (running) return;
+      running = true;
+      document.getElementById("startBtn").disabled = true;
+      document.getElementById("startBtn").textContent = "Kjører...";
+      log("Starter databasebygging med 150+ søketermer...", "info");
+
+      while (currentBatch < TOTAL_BATCHES) {
+        try {
+          log(`Batch ${currentBatch + 1}/${TOTAL_BATCHES}...`, "info");
+          const data = await runBatch(currentBatch);
+
+          totalInserted += data.inserted || 0;
+          updateUI(currentBatch + 1, data.totalInDb || 0, data.inserted);
+
+          for (const d of (data.details || [])) {
+            if (d.error) log(`  ✗ ${d.term}: ${d.error}`, "err");
+            else log(`  ✓ ${d.term}: ${d.found} funnet, ${d.enriched} lagt til`, "ok");
+          }
+
+          if (data.done || !data.hasMore) {
+            log(`✅ Ferdig! ${data.totalInDb} viner i databasen`, "ok");
+            document.getElementById("done").style.display = "block";
+            break;
+          }
+
+          currentBatch++;
+          await new Promise(r => setTimeout(r, 1000)); // 1 sek pause mellom batches
+        } catch(e) {
+          log(`Feil på batch ${currentBatch}: ${e.message} — prøver igjen...`, "err");
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+
+      running = false;
+      document.getElementById("startBtn").disabled = false;
+      document.getElementById("startBtn").textContent = "▶ Kjør igjen";
+    }
+  </script>
+</body>
+</html>
