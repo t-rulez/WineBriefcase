@@ -227,6 +227,7 @@ function WineCard({ wine, onSelect, onAddTasting, onAddToCellar, isDesktop }) {
             {wine.price && (
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div style={{ fontSize: isDesktop ? 17 : 16, fontWeight: 800, color: C.primary }}>{wine.price.toLocaleString("nb-NO")} kr</div>
+                {wine.rating && <div style={{ fontSize: 10, color: C.textSoft, textAlign: "right" }}>⭐ {wine.rating}/100</div>}
               </div>
             )}
           </div>
@@ -291,6 +292,18 @@ function WineDetail({ wine, onClose, onAddTasting, onAddToCellar, isMobile }) {
           </div>
         ))}
       </div>
+      {(wine.description_no || wine.description_en) && (
+        <p style={{ color: C.textMid, lineHeight: 1.65, fontSize: 14, margin: "0 0 14px" }}>
+          {wine.description_no || wine.description_en}
+        </p>
+      )}
+      {wine.flavor_profile && (
+        <div style={{ marginBottom: 12 }}>
+          <span style={{ background: C.borderLight, color: C.textMid, padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
+            {wine.flavor_profile}
+          </span>
+        </div>
+      )}
       {wine.taste && (
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: C.textSoft, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Smaksprofil</div>
@@ -487,8 +500,8 @@ function LabelScanner({ onSelectWine, onClose, isMobile }) {
           {result.wineInfo && (
             <div style={{ background: C.bg, borderRadius: 12, padding: "12px 16px", marginBottom: 16, border: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 11, color: C.textSoft, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Claude identifiserte:</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{result.wineInfo.wineNameGuess || "Ukjent"}</div>
-              {result.wineInfo.producer && <div style={{ fontSize: 12, color: C.textMid }}>{result.wineInfo.producer} {result.wineInfo.vintage && `· ${result.wineInfo.vintage}`}</div>}
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{result.wineInfo.name || result.wineInfo.producer || "Ukjent"}</div>
+              {result.wineInfo.producer && <div style={{ fontSize: 12, color: C.textMid }}>{result.wineInfo.producer} {result.wineInfo.year && `· ${result.wineInfo.year}`}</div>}
               <div style={{ fontSize: 11, color: result.wineInfo.confidence === "high" ? C.green : result.wineInfo.confidence === "medium" ? C.gold : C.red, marginTop: 4, fontWeight: 600 }}>
                 Konfidensgrad: {result.wineInfo.confidence === "high" ? "Høy ✓" : result.wineInfo.confidence === "medium" ? "Medium" : "Lav — sjekk manuelt"}
               </div>
@@ -799,7 +812,7 @@ export default function VinApp() {
             <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 8 }}>Søk i Vinmonopolets sortiment</div>
             <div style={{ fontSize: 14, color: C.textSoft, marginBottom: 20 }}>Over 14 000 viner — søk på navn, drue, region eller land</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-              {["Barolo", "Chablis", "Malbec", "Rioja", "Pinot noir", "Champagne"].map(s => (
+              {["Barolo", "Champagne", "Malbec", "Chablis", "Rioja", "Amarone"].map(s => (
                 <button key={s} onClick={() => setSearch(s)} style={{ padding: "8px 16px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 20, cursor: "pointer", fontSize: 13, color: C.textMid, fontFamily: "inherit" }}>{s}</button>
               ))}
             </div>
