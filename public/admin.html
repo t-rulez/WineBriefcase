@@ -152,11 +152,12 @@ async function doSearch(wineId) {
   resDiv.innerHTML = '<em style="color:#8a5a50;font-size:12px">Søker...</em>';
 
   try {
-    const url = `https://www.vinmonopolet.no/vmpws/v2/vmp/search?q=${encodeURIComponent(q)}&searchType=product&currentPage=0&pageSize=8&fields=FULL`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`HTTP ${res.status} — vinmonopolet.no blokkerte kallet`);
+    // Use our own proxy to avoid CORS issues
+    const res = await fetch(BASE + '/api/vmp-search?q=' + encodeURIComponent(q));
+    if (!res.ok) throw new Error('Proxy-feil: ' + res.status);
     const data = await res.json();
-    const products = data?.productSearchResult?.products || [];
+    if (data.error) throw new Error(data.message || 'Vinmonopolet svarte ikke (' + data.status + ')');
+    const products = data.products || [];
 
     if (!products.length) {
       resDiv.innerHTML = '<em style="color:#c0392b;font-size:12px">Ingen treff</em>';
@@ -167,7 +168,7 @@ async function doSearch(wineId) {
       <div class="result-item" onclick="selectResult(${wineId}, '${p.code}', this)" data-id="${p.code}">
         <img class="result-img" src="https://bilder.vinmonopolet.no/cache/300x300-0/${p.code}-1.jpg" onerror="this.style.display='none'">
         <span class="result-name">${p.name}</span>
-        <span class="result-id">${p.code}${p.price?.value ? ' · ' + p.price.value.toLocaleString('nb-NO') + ' kr' : ''}</span>
+        <span class="result-id">${p.code}${p.price ? ' · ' + p.price.toLocaleString('nb-NO') + ' kr' : ''}${p.country ? ' · ' + p.country : ''}</span>
       </div>`).join('');
 
   } catch(e) {
