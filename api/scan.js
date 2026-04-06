@@ -7,18 +7,18 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
-  const { image } = req.body;
+  const { image, mediaType } = req.body;
   if (!image) return res.status(400).json({ error: "No image provided" });
 
   const claudeKey = process.env.ANTHROPIC_API_KEY;
   if (!claudeKey) return res.status(500).json({ error: "Claude API key not configured" });
 
-  // Accept either raw base64 or data URL
+  // Use mediaType sent from client, default to jpeg
+  const mime = mediaType || "image/jpeg";
   const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
 
-  // Log payload size for debugging
   const sizeKB = Math.round(base64Data.length * 0.75 / 1024);
-  console.log(`Scan payload: ~${sizeKB}KB`);
+  console.log(`Scan: ${mime}, ~${sizeKB}KB`);
 
   try {
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
           content: [
             {
               type: "image",
-              source: { type: "base64", media_type: "image/jpeg", data: base64Data },
+              source: { type: "base64", media_type: mime, data: base64Data },
             },
             {
               type: "text",
@@ -51,7 +51,12 @@ For type use: Rødvin, Hvitvin, Rosévin, Champagne, Musserende vin, Sterkvin, o
 
     if (!claudeRes.ok) {
       const errText = await claudeRes.text();
-      return res.status(500).json({ error: `Claude feil: ${claudeRes.status}`, detail: errText.substring(0, 200) });
+      return res.status(500).json({
+        error: `Claude feil: ${claudeRes.status}`,
+        detail: errText.substring(0, 300),
+        mime,
+        sizeKB,
+      });
     }
 
     const claudeData = await claudeRes.json();

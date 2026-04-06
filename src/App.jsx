@@ -34,10 +34,10 @@ const API = {
     const res = await fetch(`/api/wines?${p}`);
     return res.json();
   },
-  async scanLabel(imageBase64) {
+  async scanLabel(imageBase64, mediaType = "image/jpeg") {
     const res = await fetch("/api/scan", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: imageBase64 }),
+      body: JSON.stringify({ image: imageBase64, mediaType }),
     });
     return res.json();
   },
@@ -458,17 +458,17 @@ function LabelScanner({ onSelectWine, onClose, isMobile }) {
     if (!file) return;
     setScanning(true); setError(""); setResult(null);
     try {
+      // compressImage always outputs image/jpeg via canvas.toDataURL
       const compressed = await compressImage(file);
-      // Strip the data URL header — send only raw base64
-      const base64 = compressed.replace(/^data:image\/\w+;base64,/, "");
-      const data = await API.scanLabel(base64);
+      const base64 = compressed.split(",")[1]; // strip data URL header
+      const data = await API.scanLabel(base64, "image/jpeg");
       if (data.error) {
         setError(`Feil: ${data.error}`);
       } else {
         setResult(data);
       }
     } catch (err) {
-      setError("Feil ved skanning. Prøv igjen.");
+      setError(`Feil: ${err.message || "Prøv igjen"}`);
     }
     setScanning(false);
   };
