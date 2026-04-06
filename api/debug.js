@@ -1,29 +1,38 @@
+// Tests Vivino's internal search API
+// Visit: /api/debug?q=barolo
 // DELETE after use!
+
 export default async function handler(req, res) {
-  const apiKey = process.env.VINMONOPOLET_API_KEY;
-  const id = req.query.id || "124701";
+  const q = req.query.q || "barolo";
 
-  // Test 1: Single product by ID
-  const r1 = await fetch(
-    `https://apis.vinmonopolet.no/products/v0/details-normal?productId=${id}`,
-    { headers: { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" } }
-  );
-  const d1 = await r1.json();
+  const urls = [
+    `https://www.vivino.com/api/explore/explore?q=${encodeURIComponent(q)}&language=no&country_code=NO&price_range_min=50&price_range_max=5000`,
+    `https://www.vivino.com/api/explore/explore?q=${encodeURIComponent(q)}&language=en&country_code=NO`,
+    `https://www.vivino.com/search/wines?q=${encodeURIComponent(q)}`,
+  ];
 
-  // Test 2: Check all top-level keys
-  const sample = Array.isArray(d1) ? d1[0] : d1;
+  const results = {};
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+          "Accept": "application/json",
+          "Accept-Language": "nb-NO,nb;q=0.9",
+          "Referer": "https://www.vivino.com/",
+        }
+      });
+      const text = await r.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = text.substring(0, 300); }
+      results[url.split("vivino.com")[1].split("?")[0]] = {
+        status: r.status,
+        data: typeof data === "object" ? data : data,
+      };
+    } catch(e) {
+      results[url] = { error: e.message };
+    }
+  }
 
-  return res.status(200).json({
-    status: r1.status,
-    isArray: Array.isArray(d1),
-    count: Array.isArray(d1) ? d1.length : 1,
-    topLevelKeys: sample ? Object.keys(sample) : [],
-    basicKeys: sample?.basic ? Object.keys(sample.basic) : [],
-    hasOrigins: !!sample?.origins,
-    hasPrices: !!sample?.prices,
-    hasClassification: !!sample?.classification,
-    hasTaste: !!sample?.taste,
-    hasIngredients: !!sample?.ingredients,
-    rawSample: sample,
-  });
+  return res.status(200).json(results);
 }
