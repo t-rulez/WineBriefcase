@@ -13,14 +13,39 @@ export default async function handler(req, res) {
   const claudeKey = process.env.ANTHROPIC_API_KEY;
   if (!claudeKey) return res.status(500).json({ error: "Claude API key not configured" });
 
-  // Use mediaType sent from client, default to jpeg
-  const mime = mediaType || "image/jpeg";
-  const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+  // Canvas always outputs JPEG — always use image/jpeg
+  const base64Data = image.replace(/^data:image\/[^;]+;base64,/, "").trim();
 
   const sizeKB = Math.round(base64Data.length * 0.75 / 1024);
-  console.log(`Scan: ${mime}, ~${sizeKB}KB`);
+
+  // Validate base64 looks sane
+  if (base64Data.length < 100) {
+    return res.status(400).json({ error: "Image too small or invalid", sizeKB, first50: base64Data.substring(0, 50) });
+  }
 
   try {
+    const claudeBody = {
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 400,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/jpeg",
+              data: base64Data,
+            },
+          },
+          {
+            type: "text",
+            text: `Wine label. Reply ONLY with JSON: {"name":"...","producer":"...","country":"...","region":"...","year":null,"type":"Rødvin","grapes":"...","confidence":"high"}`,
+          }
+        ]
+      }]
+    };
+
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -28,38 +53,22 @@ export default async function handler(req, res) {
         "x-api-key": claudeKey,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 400,
-        messages: [{
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mime, data: base64Data },
-            },
-            {
-              type: "text",
-              text: `Wine label image. Respond ONLY with valid JSON, nothing else:
-{"name":"wine name","producer":"producer/winery","country":"country in Norwegian","region":"region","year":2019,"type":"Rødvin","grapes":"grapes","confidence":"high"}
-For type use: Rødvin, Hvitvin, Rosévin, Champagne, Musserende vin, Sterkvin, or Dessertvin. Year as number or null.`,
-            }
-          ]
-        }]
-      }),
+      body: JSON.stringify(claudeBody),
     });
 
+    const responseText = await claudeRes.text();
+
     if (!claudeRes.ok) {
-      const errText = await claudeRes.text();
       return res.status(500).json({
         error: `Claude feil: ${claudeRes.status}`,
-        detail: errText.substring(0, 300),
-        mime,
+        claudeResponse: responseText.substring(0, 500),
         sizeKB,
+        base64Start: base64Data.substring(0, 30),
+        base64End: base64Data.substring(base64Data.length - 10),
       });
     }
 
-    const claudeData = await claudeRes.json();
+    const claudeData = JSON.parse(responseText);
     const rawText = claudeData.content?.[0]?.text || "";
 
     let wineInfo = {};
@@ -70,11 +79,9 @@ For type use: Rødvin, Hvitvin, Rosévin, Champagne, Musserende vin, Sterkvin, o
       wineInfo = { name: rawText.substring(0, 80), confidence: "low" };
     }
 
-    // Search database
     const sql = neon(process.env.DATABASE_URL);
     let wines = [];
     const seen = new Set();
-
     const addRows = (rows) => {
       for (const w of rows) {
         if (!seen.has(w.id)) { seen.add(w.id); wines.push(w); }
@@ -117,6 +124,6 @@ For type use: Rødvin, Hvitvin, Rosévin, Champagne, Musserende vin, Sterkvin, o
     return res.status(200).json({ identified: mapped.length > 0, wineInfo, wines: mapped, sizeKB });
 
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message, sizeKB });
   }
 }
