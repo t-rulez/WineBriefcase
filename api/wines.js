@@ -42,8 +42,8 @@ export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
 
   const sql = neon(process.env.DATABASE_URL);
-  const { search = "", category = "", country = "", maxResults = "24" } = req.query;
-  const limit = Math.min(parseInt(maxResults, 10) || 24, 100);
+  const { search = "", category = "", country = "" } = req.query;
+  const limit = 500; // return all matches
 
   try {
     let rows;
