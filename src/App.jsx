@@ -591,38 +591,52 @@ function PriceSlider({ min, max, value, onChange }) {
   const [localMin, setLocalMin] = useState(value[0]);
   const [localMax, setLocalMax] = useState(value[1]);
 
-  const commitMin = (v) => { const n = Math.min(Number(v), localMax - 50); setLocalMin(n); onChange([n, localMax]); };
-  const commitMax = (v) => { const n = Math.max(Number(v), localMin + 50); setLocalMax(n); onChange([localMin, n]); };
+  // Sync if parent resets
+  useEffect(() => { setLocalMin(value[0]); setLocalMax(value[1]); }, [value[0], value[1]]);
 
   const pctMin = ((localMin - min) / (max - min)) * 100;
   const pctMax = ((localMax - min) / (max - min)) * 100;
 
+  const handleMinChange = (e) => {
+    const v = Math.min(Number(e.target.value), localMax - 50);
+    setLocalMin(v);
+    onChange([v, localMax]);
+  };
+  const handleMaxChange = (e) => {
+    const v = Math.max(Number(e.target.value), localMin + 50);
+    setLocalMax(v);
+    onChange([localMin, v]);
+  };
+
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
         <span style={{ fontSize:13, fontWeight:700, color:C.primary }}>{localMin.toLocaleString("nb-NO")} kr</span>
         <span style={{ fontSize:13, fontWeight:700, color:C.primary }}>{localMax.toLocaleString("nb-NO")} kr</span>
       </div>
-      <div style={{ position:"relative", height:20, marginBottom:4 }}>
-        {/* Track */}
-        <div style={{ position:"absolute", top:"50%", left:0, right:0, height:4, background:C.borderLight, borderRadius:2, transform:"translateY(-50%)" }} />
-        {/* Active range */}
-        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, right:`${100-pctMax}%`, height:4, background:C.primary, borderRadius:2, transform:"translateY(-50%)" }} />
-        {/* Min thumb */}
+      <div style={{ position:"relative", height:28, marginBottom:4 }}>
+        {/* Track background */}
+        <div style={{ position:"absolute", top:"50%", left:0, right:0, height:5, background:C.borderLight, borderRadius:3, transform:"translateY(-50%)" }} />
+        {/* Active range highlight */}
+        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, right:`${100-pctMax}%`, height:5, background:C.primary, borderRadius:3, transform:"translateY(-50%)", pointerEvents:"none" }} />
+        {/* Min range input — sits on left half priority */}
         <input type="range" min={min} max={max} step={50} value={localMin}
-          onChange={e => { setLocalMin(Number(e.target.value)); }}
-          onMouseUp={e => commitMin(e.target.value)}
-          onTouchEnd={e => commitMin(e.target.value)}
-          style={{ position:"absolute", width:"100%", height:"100%", opacity:0, cursor:"pointer", margin:0 }} />
-        {/* Max thumb */}
+          onChange={handleMinChange}
+          style={{ position:"absolute", width:"100%", height:"100%", opacity:0, cursor:"pointer", margin:0, zIndex: localMin > max * 0.5 ? 5 : 4 }} />
+        {/* Max range input */}
         <input type="range" min={min} max={max} step={50} value={localMax}
-          onChange={e => { setLocalMax(Number(e.target.value)); }}
-          onMouseUp={e => commitMax(e.target.value)}
-          onTouchEnd={e => commitMax(e.target.value)}
-          style={{ position:"absolute", width:"100%", height:"100%", opacity:0, cursor:"pointer", margin:0 }} />
-        {/* Visual thumbs */}
-        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, width:18, height:18, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 1px 4px rgba(92,26,26,0.3)", pointerEvents:"none" }} />
-        <div style={{ position:"absolute", top:"50%", left:`${pctMax}%`, width:18, height:18, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 1px 4px rgba(92,26,26,0.3)", pointerEvents:"none" }} />
+          onChange={handleMaxChange}
+          style={{ position:"absolute", width:"100%", height:"100%", opacity:0, cursor:"pointer", margin:0, zIndex: localMin > max * 0.5 ? 4 : 5 }} />
+        {/* Visual min thumb */}
+        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, width:20, height:20, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 6px rgba(92,26,26,0.35)", pointerEvents:"none", zIndex:6 }} />
+        {/* Visual max thumb */}
+        <div style={{ position:"absolute", top:"50%", left:`${pctMax}%`, width:20, height:20, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 6px rgba(92,26,26,0.35)", pointerEvents:"none", zIndex:6 }} />
+      </div>
+      {/* Tick labels */}
+      <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
+        {[0,1000,2000,3000,4000,5000].map(v => (
+          <span key={v} style={{ fontSize:10, color:C.textSoft }}>{v === 0 ? "0" : `${v/1000}k`}</span>
+        ))}
       </div>
     </div>
   );
@@ -887,7 +901,7 @@ export default function VinApp() {
 
   // ── Database-fane ──
   const dbTab = (
-    <div style={isDesktop ? { display:"grid", gridTemplateColumns:"220px 1fr", gap:24 } : {}}>
+    <div style={isDesktop ? { display:"grid", gridTemplateColumns:"330px 1fr", gap:24 } : {}}>
       {isDesktop && (
         <FilterPanel isMobile={false} open filters={filters} setFilters={v => { setFilters(v); setPage(0); }} onClose={() => {}} />
       )}
