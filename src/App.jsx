@@ -591,7 +591,6 @@ function PriceSlider({ min, max, value, onChange }) {
   const [localMin, setLocalMin] = useState(value[0]);
   const [localMax, setLocalMax] = useState(value[1]);
 
-  // Sync if parent resets
   useEffect(() => { setLocalMin(value[0]); setLocalMax(value[1]); }, [value[0], value[1]]);
 
   const pctMin = ((localMin - min) / (max - min)) * 100;
@@ -615,24 +614,23 @@ function PriceSlider({ min, max, value, onChange }) {
         <span style={{ fontSize:13, fontWeight:700, color:C.primary }}>{localMax.toLocaleString("nb-NO")} kr</span>
       </div>
       <div style={{ position:"relative", height:28, marginBottom:4 }}>
-        {/* Track background */}
-        <div style={{ position:"absolute", top:"50%", left:0, right:0, height:5, background:C.borderLight, borderRadius:3, transform:"translateY(-50%)" }} />
-        {/* Active range highlight */}
+        {/* Track */}
+        <div style={{ position:"absolute", top:"50%", left:0, right:0, height:5, background:C.borderLight, borderRadius:3, transform:"translateY(-50%)", pointerEvents:"none" }} />
+        {/* Active range */}
         <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, right:`${100-pctMax}%`, height:5, background:C.primary, borderRadius:3, transform:"translateY(-50%)", pointerEvents:"none" }} />
-        {/* Min range input — sits on left half priority */}
+        {/* Min input — clipped to left portion so it doesn't overlap max thumb area */}
         <input type="range" min={min} max={max} step={50} value={localMin}
           onChange={handleMinChange}
-          style={{ position:"absolute", width:"100%", height:"100%", opacity:0, cursor:"pointer", margin:0, zIndex: localMin > max * 0.5 ? 5 : 4 }} />
-        {/* Max range input */}
+          style={{ position:"absolute", width:`${pctMax + 10}%`, height:"100%", opacity:0, cursor:"pointer", margin:0, zIndex:4, left:0 }} />
+        {/* Max input — clipped to right portion */}
         <input type="range" min={min} max={max} step={50} value={localMax}
           onChange={handleMaxChange}
-          style={{ position:"absolute", width:"100%", height:"100%", opacity:0, cursor:"pointer", margin:0, zIndex: localMin > max * 0.5 ? 4 : 5 }} />
+          style={{ position:"absolute", width:`${100 - pctMin + 10}%`, height:"100%", opacity:0, cursor:"pointer", margin:0, zIndex:4, right:0 }} />
         {/* Visual min thumb */}
-        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, width:20, height:20, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 6px rgba(92,26,26,0.35)", pointerEvents:"none", zIndex:6 }} />
+        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, width:20, height:20, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 6px rgba(92,26,26,0.35)", pointerEvents:"none", zIndex:5 }} />
         {/* Visual max thumb */}
-        <div style={{ position:"absolute", top:"50%", left:`${pctMax}%`, width:20, height:20, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 6px rgba(92,26,26,0.35)", pointerEvents:"none", zIndex:6 }} />
+        <div style={{ position:"absolute", top:"50%", left:`${pctMax}%`, width:20, height:20, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 6px rgba(92,26,26,0.35)", pointerEvents:"none", zIndex:5 }} />
       </div>
-      {/* Tick labels */}
       <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
         {[0,1000,2000,3000,4000,5000].map(v => (
           <span key={v} style={{ fontSize:10, color:C.textSoft }}>{v === 0 ? "0" : `${v/1000}k`}</span>
