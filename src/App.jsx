@@ -454,8 +454,9 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
   useEffect(() => () => stopCamera(), []);
 
   const stopCamera = () => {
-    if (readerRef.current) { try { readerRef.current.reset(); } catch {} readerRef.current = null; }
+    readerRef.current = null;
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    if (videoRef.current) { videoRef.current.srcObject = null; }
     setBarcodeActive(false);
   };
 
@@ -463,47 +464,60 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
   const startBarcode = async () => {
     setMode("barcode");
     setError("");
-    // Load ZXing dynamically
-    if (!window.ZXing) {
-      try {
+    try {
+      // Last ZXing browser-pakken fra jsDelivr (UMD-format)
+      if (!window.ZXingBrowser) {
         await new Promise((resolve, reject) => {
           const s = document.createElement("script");
-          s.src = "https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.21.1/zxing.min.js";
-          s.onload = resolve; s.onerror = reject;
+          s.src = "https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/index.min.js";
+          s.onload = resolve;
+          s.onerror = () => reject(new Error("Kunne ikke laste ZXing"));
           document.head.appendChild(s);
         });
-      } catch {
-        setError("Kunne ikke laste strekkodeleser. Prøv etikett-skanning.");
-        return;
       }
-    }
 
-    try {
-      const ZXing = window.ZXing;
-      const hints = new Map();
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        ZXing.BarcodeFormat.EAN_13,
-        ZXing.BarcodeFormat.EAN_8,
-        ZXing.BarcodeFormat.UPC_A,
-      ]);
-      const reader = new ZXing.BrowserMultiFormatReader(hints);
+      const reader = new window.ZXingBrowser.BrowserMultiFormatReader();
       readerRef.current = reader;
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
       });
       streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
       setBarcodeActive(true);
 
-      reader.decodeFromStream(stream, videoRef.current, async (result, err) => {
-        if (result) {
-          stopCamera();
-          await lookupBarcode(result.getText());
+      // Poll frames manuelt siden decodeFromStream kan være ustabil
+      const canvas  = document.createElement("canvas");
+      const ctx     = canvas.getContext("2d");
+      let stopped   = false;
+
+      const poll = async () => {
+        if (stopped || !videoRef.current || !readerRef.current) return;
+        const v = videoRef.current;
+        if (v.readyState >= 2 && v.videoWidth > 0) {
+          canvas.width  = v.videoWidth;
+          canvas.height = v.videoHeight;
+          ctx.drawImage(v, 0, 0);
+          try {
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const result  = await readerRef.current.decodeFromImageData(imgData);
+            if (result) {
+              stopped = true;
+              stopCamera();
+              await lookupBarcode(result.getText());
+              return;
+            }
+          } catch { /* ingen kode i dette bildet, fortsett */ }
         }
-      });
+        setTimeout(poll, 300);
+      };
+      poll();
+
     } catch(e) {
-      setError("Kamera ikke tilgjengelig: " + e.message);
+      setError("Feil: " + e.message + ". Prøv etikett-skanning i stedet.");
     }
   };
 
@@ -550,15 +564,23 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
         body: JSON.stringify({ image: base64, mediaType: "image/jpeg" }),
       });
       const data = await r.json();
-      if (data.error) { setError(data.error); setScanning(false); return; }
+      if (data.error) {
+        setError(data.error);
+        setScanning(false);
+        setMode("choose");
+        return;
+      }
       setResult({ wines: data.wines, wineInfo: data.wineInfo, method: "label" });
     } catch(e) {
       setError("Feil: " + e.message);
+      setMode("choose");
+    } finally {
+      setScanning(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
-    setScanning(false);
   };
 
-  const reset = () => { stopCamera(); setResult(null); setError(""); setMode("choose"); };
+  const reset = () => { stopCamera(); setResult(null); setError(""); setMode("choose"); setScanning(false); if (fileRef.current) fileRef.current.value = ""; };
 
   // ── UI ──────────────────────────────────────────────────────────────────────
   const header = (
@@ -586,12 +608,19 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
           <span style={{ fontSize:22 }}>📊</span> Skann strekkode
           <span style={{ fontSize:11, background:"rgba(255,255,255,0.2)", borderRadius:20, padding:"2px 8px", marginLeft:4 }}>Anbefalt</span>
         </button>
-        <button onClick={() => { setMode("label"); fileRef.current?.click(); }}
+        <button onClick={() => { fileRef.current.value = ""; fileRef.current.click(); }}
           style={{ background:C.bg, color:C.text, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"16px", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
           <IcoCamera s={20} /> Skann etikett (AI)
         </button>
       </div>
-      <input ref={fileRef} type="file" accept="image/*" onChange={e => handleLabelImage(e.target.files?.[0])} style={{ display:"none" }} />
+      <input ref={fileRef} type="file" accept="image/*"
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (!file) return; // bruker avbrøt
+          setMode("label");
+          handleLabelImage(file);
+        }}
+        style={{ display:"none" }} />
     </Overlay>
   );
 
