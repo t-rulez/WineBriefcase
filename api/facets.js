@@ -6,50 +6,38 @@ export default async function handler(req, res) {
 
   const sql = neon(process.env.DATABASE_URL);
   const { category = "", country = "" } = req.query;
+  const cq  = category ? `%${category}%` : null;
+  const coq = country  ? `%${country}%`  : null;
 
   try {
-    // Build WHERE for current selections
-    const conditions = ["status = 'aktiv' OR status IS NULL"];
-    const params = [];
-    let idx = 1;
+    let countries, regions, subRegions;
 
-    if (category) {
-      conditions.push(`type ILIKE $${idx}`);
-      params.push(`%${category}%`); idx++;
-    }
-    if (country) {
-      conditions.push(`country ILIKE $${idx}`);
-      params.push(`%${country}%`); idx++;
+    // Countries filtered by category
+    if (cq) {
+      countries = await sql`SELECT DISTINCT country FROM vb_wines WHERE type ILIKE ${cq} AND country != '' ORDER BY country`;
+    } else {
+      countries = await sql`SELECT DISTINCT country FROM vb_wines WHERE country != '' ORDER BY country`;
     }
 
-    const where = `WHERE ${conditions.join(" AND ")}`;
-
-    // Countries — filtered by category
-    const countriesWhere = category
-      ? `WHERE type ILIKE $1`
-      : `WHERE 1=1`;
-    const countriesParams = category ? [`%${category}%`] : [];
-    const countriesRows = await sql.query(
-      `SELECT DISTINCT country FROM vb_wines ${countriesWhere} AND country != '' ORDER BY country`,
-      countriesParams
-    );
-
-    // Regions — filtered by category AND country
-    const regionsRows = await sql.query(
-      `SELECT DISTINCT region FROM vb_wines ${where} AND region != '' ORDER BY region`,
-      params
-    );
-
-    // Sub-regions — filtered by category AND country
-    const subRegionsRows = await sql.query(
-      `SELECT DISTINCT sub_region FROM vb_wines ${where} AND sub_region != '' ORDER BY sub_region`,
-      params
-    );
+    // Regions filtered by category + country
+    if (cq && coq) {
+      regions    = await sql`SELECT DISTINCT region FROM vb_wines WHERE type ILIKE ${cq} AND country ILIKE ${coq} AND region != '' ORDER BY region`;
+      subRegions = await sql`SELECT DISTINCT sub_region FROM vb_wines WHERE type ILIKE ${cq} AND country ILIKE ${coq} AND sub_region != '' ORDER BY sub_region`;
+    } else if (cq) {
+      regions    = await sql`SELECT DISTINCT region FROM vb_wines WHERE type ILIKE ${cq} AND region != '' ORDER BY region`;
+      subRegions = await sql`SELECT DISTINCT sub_region FROM vb_wines WHERE type ILIKE ${cq} AND sub_region != '' ORDER BY sub_region`;
+    } else if (coq) {
+      regions    = await sql`SELECT DISTINCT region FROM vb_wines WHERE country ILIKE ${coq} AND region != '' ORDER BY region`;
+      subRegions = await sql`SELECT DISTINCT sub_region FROM vb_wines WHERE country ILIKE ${coq} AND sub_region != '' ORDER BY sub_region`;
+    } else {
+      regions    = await sql`SELECT DISTINCT region FROM vb_wines WHERE region != '' ORDER BY region`;
+      subRegions = await sql`SELECT DISTINCT sub_region FROM vb_wines WHERE sub_region != '' ORDER BY sub_region`;
+    }
 
     return res.status(200).json({
-      countries:  countriesRows.rows.map(r => r.country),
-      regions:    regionsRows.rows.map(r => r.region),
-      subRegions: subRegionsRows.rows.map(r => r.sub_region),
+      countries:  countries.map(r => r.country),
+      regions:    regions.map(r => r.region),
+      subRegions: subRegions.map(r => r.sub_region),
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
