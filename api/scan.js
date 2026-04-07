@@ -1,140 +1,192 @@
 import { neon } from "@neondatabase/serverless";
 
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function mapWine(w) {
+  return {
+    id: w.id, product_id: w.product_id, name: w.name, producer: w.producer,
+    country: w.country, region: w.region, subRegion: w.sub_region,
+    year: w.year, type: w.type, mainCategory: w.type, grapes: w.grapes,
+    alcohol: w.alcohol, volume: w.volume, price: w.price,
+    color: w.color, flavor_profile: w.flavor_profile, status: w.status || "aktiv",
+    taste: { fullness: w.taste_fullness, sweetness: w.taste_sweetness,
+             freshness: w.taste_freshness, tannins: w.taste_tannins, bitterness: w.taste_bitterness },
+    aromaCategories: typeof w.aromas === "string" ? JSON.parse(w.aromas) : (w.aromas || []),
+    description_no: w.description_no,
+    imageUrl: `https://bilder.vinmonopolet.no/cache/300x300-0/${w.product_id}-1.jpg`,
+    imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${w.product_id}-1.jpg`,
+    url: `https://www.vinmonopolet.no/p/${w.product_id}`,
+  };
+}
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+
+  const sql = neon(process.env.DATABASE_URL);
+
+  // ── GET: strekkode-oppslag ──────────────────────────────────────────────────
+  if (req.method === "GET") {
+    const { barcode } = req.query;
+    if (!barcode) return res.status(400).json({ error: "barcode påkrevd" });
+
+    const apiKey = process.env.VINMONOPOLET_API_KEY;
+
+    try {
+      // Slå opp strekkode mot Vinmonopolets åpne API
+      const vmpRes = await fetch(
+        `https://apis.vinmonopolet.no/products/v0/details-normal?barcode=${encodeURIComponent(barcode)}`,
+        { headers: { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" } }
+      );
+
+      let productId = null;
+      let wineInfo  = { name: "", producer: "" };
+
+      if (vmpRes.ok) {
+        const vmpData = await vmpRes.json();
+        if (Array.isArray(vmpData) && vmpData[0]?.basic) {
+          productId = vmpData[0].basic.productId;
+          wineInfo  = { name: vmpData[0].basic.productShortName, producer: "" };
+        }
+      }
+
+      // Søk i vår DB — først på product_id fra VMP, ellers på navn
+      let wines = [];
+      if (productId) {
+        const rows = await sql`SELECT * FROM vb_wines WHERE product_id = ${productId} LIMIT 1`;
+        wines = rows.map(mapWine);
+      }
+
+      // Hvis ikke funnet i DB, prøv navn-søk
+      if (wines.length === 0 && wineInfo.name) {
+        const q = `%${wineInfo.name.substring(0, 40)}%`;
+        const rows = await sql`SELECT * FROM vb_wines WHERE name ILIKE ${q} ORDER BY name LIMIT 5`;
+        wines = rows.map(mapWine);
+      }
+
+      return res.status(200).json({ wines, wineInfo, barcode, found: wines.length > 0 });
+
+    } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ── POST: etikett-skanning med Claude ──────────────────────────────────────
+  if (req.method !== "POST") return res.status(405).json({ error: "GET eller POST" });
 
   const { image, mediaType } = req.body;
   if (!image) return res.status(400).json({ error: "No image provided" });
 
   const claudeKey = process.env.ANTHROPIC_API_KEY;
-  if (!claudeKey) return res.status(500).json({ error: "Claude API key not configured" });
+  if (!claudeKey) return res.status(500).json({ error: "Claude API key ikke konfigurert" });
 
-  // Canvas always outputs JPEG — always use image/jpeg
   const base64Data = image.replace(/^data:image\/[^;]+;base64,/, "").trim();
-
   const sizeKB = Math.round(base64Data.length * 0.75 / 1024);
-
-  // Validate base64 looks sane
-  if (base64Data.length < 100) {
-    return res.status(400).json({ error: "Image too small or invalid", sizeKB, first50: base64Data.substring(0, 50) });
-  }
+  if (base64Data.length < 100) return res.status(400).json({ error: "Bilde for lite", sizeKB });
 
   try {
-    const claudeBody = {
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 400,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: "image/jpeg",
-              data: base64Data,
-            },
-          },
-          {
-            type: "text",
-            text: `Wine label. Reply ONLY with JSON: {"name":"...","producer":"...","country":"...","region":"...","year":null,"type":"Rødvin","grapes":"...","confidence":"high"}`,
-          }
-        ]
-      }]
-    };
-
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": claudeKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(claudeBody),
+      headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 400,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64Data } },
+            { type: "text", text: `Wine label. Reply ONLY with JSON: {"name":"...","producer":"...","country":"...","region":"...","year":null,"type":"Rødvin","grapes":"...","confidence":"high"}` }
+          ]
+        }]
+      }),
     });
 
     const responseText = await claudeRes.text();
-
     if (!claudeRes.ok) {
-      let claudeError;
-      try { claudeError = JSON.parse(responseText); } catch { claudeError = {}; }
-      const msg = claudeError?.error?.message || "";
-
-      let userMessage;
-      if (claudeRes.status === 400 && msg.includes("credit")) {
-        userMessage = "Ingen credits igjen på Anthropic-kontoen. Gå til console.anthropic.com og fyll på.";
-      } else if (claudeRes.status === 401) {
-        userMessage = "Claude API-nøkkelen er ugyldig. Sjekk ANTHROPIC_API_KEY i Vercel.";
-      } else if (claudeRes.status === 429) {
-        userMessage = "For mange forespørsler til Claude. Vent litt og prøv igjen.";
-      } else if (claudeRes.status === 529) {
-        userMessage = "Claude er overbelastet akkurat nå. Prøv igjen om litt.";
-      } else {
-        userMessage = `Claude-feil (${claudeRes.status}): ${msg || "Ukjent feil"}`;
-      }
-
-      return res.status(500).json({ error: userMessage, sizeKB });
+      const claudeError = JSON.parse(responseText).error?.message || "";
+      const msg = claudeRes.status === 400 && claudeError.includes("credit")
+        ? "Ingen credits på Anthropic-kontoen. Gå til console.anthropic.com."
+        : claudeRes.status === 401 ? "Ugyldig Claude API-nøkkel."
+        : claudeRes.status === 429 ? "For mange forespørsler. Vent litt."
+        : `Claude-feil (${claudeRes.status})`;
+      return res.status(500).json({ error: msg, sizeKB });
     }
 
-    const claudeData = JSON.parse(responseText);
-    const rawText = claudeData.content?.[0]?.text || "";
-
+    const claudeData  = JSON.parse(responseText);
+    const rawText     = claudeData.content?.[0]?.text || "";
     let wineInfo = {};
-    try {
-      const m = rawText.match(/\{[\s\S]*\}/);
-      if (m) wineInfo = JSON.parse(m[0]);
-    } catch {
-      wineInfo = { name: rawText.substring(0, 80), confidence: "low" };
-    }
+    try { const m = rawText.match(/\{[\s\S]*\}/); if (m) wineInfo = JSON.parse(m[0]); }
+    catch { wineInfo = { name: rawText.substring(0, 80), confidence: "low" }; }
 
-    const sql = neon(process.env.DATABASE_URL);
-    let wines = [];
+    // Smart DB-søk i flere runder med stigende bredde
     const seen = new Set();
-    const addRows = (rows) => {
-      for (const w of rows) {
-        if (!seen.has(w.id)) { seen.add(w.id); wines.push(w); }
-      }
-    };
+    let wines = [];
+    const add = (rows) => { for (const w of rows) { if (!seen.has(w.id)) { seen.add(w.id); wines.push(mapWine(w)); } } };
 
-    if (wineInfo.producer) {
-      const q = `%${wineInfo.producer.substring(0, 40)}%`;
-      addRows(await sql`SELECT * FROM vb_wines WHERE producer ILIKE ${q} ORDER BY name LIMIT 6`);
+    const pq  = wineInfo.producer ? `%${wineInfo.producer.substring(0, 40)}%` : null;
+    const nq  = wineInfo.name     ? `%${wineInfo.name.substring(0, 40)}%`     : null;
+    const rq  = wineInfo.region   ? `%${wineInfo.region.substring(0, 30)}%`   : null;
+    const coq = wineInfo.country  ? `%${wineInfo.country}%`                   : null;
+    const yr  = wineInfo.year     ? parseInt(wineInfo.year)                   : null;
+    const tq  = wineInfo.type     ? `%${wineInfo.type}%`                      : null;
+
+    // Runde 1: produsent + år + type (mest presis)
+    if (pq && yr && tq) {
+      add(await sql`SELECT * FROM vb_wines WHERE producer ILIKE ${pq} AND year = ${yr} AND type ILIKE ${tq} ORDER BY name LIMIT 6`);
     }
-    if (wineInfo.name && wines.length < 5) {
-      const q = `%${wineInfo.name.substring(0, 40)}%`;
-      addRows(await sql`SELECT * FROM vb_wines WHERE name ILIKE ${q} ORDER BY name LIMIT 5`);
+    // Runde 2: produsent + år
+    if (pq && yr && wines.length < 3) {
+      add(await sql`SELECT * FROM vb_wines WHERE producer ILIKE ${pq} AND year = ${yr} ORDER BY name LIMIT 6`);
     }
-    if (wineInfo.region && wines.length < 3) {
-      const q = `%${wineInfo.region.substring(0, 30)}%`;
-      addRows(await sql`SELECT * FROM vb_wines WHERE region ILIKE ${q} OR sub_region ILIKE ${q} ORDER BY name LIMIT 4`);
+    // Runde 3: produsent + type
+    if (pq && tq && wines.length < 3) {
+      add(await sql`SELECT * FROM vb_wines WHERE producer ILIKE ${pq} AND type ILIKE ${tq} ORDER BY name LIMIT 6`);
     }
-    if (wines.length === 0 && wineInfo.country) {
-      const q = `%${wineInfo.country}%`;
-      addRows(await sql`SELECT * FROM vb_wines WHERE country ILIKE ${q} ORDER BY name LIMIT 5`);
+    // Runde 4: produsent alene
+    if (pq && wines.length < 5) {
+      add(await sql`SELECT * FROM vb_wines WHERE producer ILIKE ${pq} ORDER BY name LIMIT 6`);
+    }
+    // Runde 5: navn + år
+    if (nq && yr && wines.length < 4) {
+      add(await sql`SELECT * FROM vb_wines WHERE name ILIKE ${nq} AND year = ${yr} ORDER BY name LIMIT 5`);
+    }
+    // Runde 6: navn alene
+    if (nq && wines.length < 5) {
+      add(await sql`SELECT * FROM vb_wines WHERE name ILIKE ${nq} ORDER BY name LIMIT 5`);
+    }
+    // Runde 7: region + type + år
+    if (rq && tq && yr && wines.length < 3) {
+      add(await sql`SELECT * FROM vb_wines WHERE (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND type ILIKE ${tq} AND year = ${yr} ORDER BY name LIMIT 4`);
+    }
+    // Runde 8: region + type
+    if (rq && tq && wines.length < 3) {
+      add(await sql`SELECT * FROM vb_wines WHERE (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND type ILIKE ${tq} ORDER BY name LIMIT 4`);
+    }
+    // Runde 9: land + type + år (bred fallback)
+    if (coq && tq && yr && wines.length === 0) {
+      add(await sql`SELECT * FROM vb_wines WHERE country ILIKE ${coq} AND type ILIKE ${tq} AND year = ${yr} ORDER BY name LIMIT 5`);
+    }
+    // Runde 10: land alene (siste utvei)
+    if (coq && wines.length === 0) {
+      add(await sql`SELECT * FROM vb_wines WHERE country ILIKE ${coq} ORDER BY name LIMIT 5`);
     }
 
-    const mapped = wines.slice(0, 6).map(w => ({
-      id: w.id, product_id: w.product_id, name: w.name, producer: w.producer,
-      country: w.country, region: w.region, subRegion: w.sub_region,
-      year: w.year, type: w.type, mainCategory: w.type, grapes: w.grapes,
-      alcohol: w.alcohol, volume: w.volume, price: w.price,
-      color: w.color, flavor_profile: w.flavor_profile,
-      status: w.status || "aktiv",
-      taste: { fullness: w.taste_fullness, sweetness: w.taste_sweetness,
-               freshness: w.taste_freshness, tannins: w.taste_tannins, bitterness: w.taste_bitterness },
-      aromaCategories: typeof w.aromas === "string" ? JSON.parse(w.aromas) : (w.aromas || []),
-      description_no: w.description_no,
-      imageUrl: `https://bilder.vinmonopolet.no/cache/300x300-0/${w.product_id}-1.jpg`,
-      imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${w.product_id}-1.jpg`,
-      url: `https://www.vinmonopolet.no/p/${w.product_id}`,
-    }));
+    // Sorter: treff med riktig år øverst
+    if (yr) {
+      wines.sort((a, b) => {
+        const aMatch = a.year === yr ? 0 : 1;
+        const bMatch = b.year === yr ? 0 : 1;
+        return aMatch - bMatch;
+      });
+    }
 
-    return res.status(200).json({ identified: mapped.length > 0, wineInfo, wines: mapped, sizeKB });
+    return res.status(200).json({ wines: wines.slice(0, 8), wineInfo, sizeKB });
 
-  } catch (err) {
+  } catch(err) {
     return res.status(500).json({ error: err.message, sizeKB });
   }
 }

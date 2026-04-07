@@ -440,11 +440,88 @@ function TastingCard({ entry, onDelete, onEdit }) {
 
 // ─── SKANNER ──────────────────────────────────────────────────────────────────
 function LabelScanner({ onScanComplete, onClose, isMobile }) {
+  const [mode, setMode]         = useState("choose"); // choose | barcode | label
   const [scanning, setScanning] = useState(false);
   const [result, setResult]     = useState(null);
   const [error, setError]       = useState("");
-  const fileRef   = useRef();
+  const [barcodeActive, setBarcodeActive] = useState(false);
+  const videoRef    = useRef(null);
+  const fileRef     = useRef(null);
+  const streamRef   = useRef(null);
+  const readerRef   = useRef(null);
 
+  // Cleanup camera on unmount
+  useEffect(() => () => stopCamera(), []);
+
+  const stopCamera = () => {
+    if (readerRef.current) { try { readerRef.current.reset(); } catch {} readerRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    setBarcodeActive(false);
+  };
+
+  // ── Strekkode-modus ─────────────────────────────────────────────────────────
+  const startBarcode = async () => {
+    setMode("barcode");
+    setError("");
+    // Load ZXing dynamically
+    if (!window.ZXing) {
+      try {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.21.1/zxing.min.js";
+          s.onload = resolve; s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      } catch {
+        setError("Kunne ikke laste strekkodeleser. Prøv etikett-skanning.");
+        return;
+      }
+    }
+
+    try {
+      const ZXing = window.ZXing;
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.UPC_A,
+      ]);
+      const reader = new ZXing.BrowserMultiFormatReader(hints);
+      readerRef.current = reader;
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
+      setBarcodeActive(true);
+
+      reader.decodeFromStream(stream, videoRef.current, async (result, err) => {
+        if (result) {
+          stopCamera();
+          await lookupBarcode(result.getText());
+        }
+      });
+    } catch(e) {
+      setError("Kamera ikke tilgjengelig: " + e.message);
+    }
+  };
+
+  const lookupBarcode = async (barcode) => {
+    setScanning(true);
+    setError("");
+    try {
+      const r = await fetch(`/api/scan?barcode=${encodeURIComponent(barcode)}`);
+      const data = await r.json();
+      if (data.error) { setError(data.error); setScanning(false); return; }
+      setResult({ wines: data.wines, wineInfo: data.wineInfo, barcode, method: "barcode" });
+    } catch(e) {
+      setError("Feil ved oppslag: " + e.message);
+    }
+    setScanning(false);
+  };
+
+  // ── Etikett-modus (Claude) ──────────────────────────────────────────────────
   const compressImage = (file) => new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -458,122 +535,161 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
       URL.revokeObjectURL(url);
       resolve(canvas.toDataURL("image/jpeg", 0.5));
     };
-    img.onerror = reject;
-    img.src = url;
+    img.onerror = reject; img.src = url;
   });
 
-  const handleImage = async (file) => {
+  const handleLabelImage = async (file) => {
     if (!file) return;
     setScanning(true); setError(""); setResult(null);
     try {
       const compressed = await compressImage(file);
       const base64 = compressed.split(",")[1];
-      const data = await API.scanLabel(base64, "image/jpeg");
-      if (data.error) { setError(data.error); return; }
-
-      // Search via proxy with Claude's identified info
-      const wineInfo = data.wineInfo || {};
-      const searchTerm = wineInfo.producer || wineInfo.name || "";
-      let wines = [];
-      if (searchTerm) {
-        try {
-          const p = new URLSearchParams({ search: searchTerm });
-          const r = await fetch(`/api/wines?${p}`);
-          const vmpResult = await r.json();
-          wines = vmpResult.wines || [];
-        } catch { wines = []; }
-      }
-      setResult({ wineInfo, wines });
+      const r = await fetch("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: base64, mediaType: "image/jpeg" }),
+      });
+      const data = await r.json();
+      if (data.error) { setError(data.error); setScanning(false); return; }
+      setResult({ wines: data.wines, wineInfo: data.wineInfo, method: "label" });
     } catch(e) {
-      setError(`Feil: ${e.message || "Prøv igjen"}`);
+      setError("Feil: " + e.message);
     }
     setScanning(false);
   };
 
-  const content = (
-    <>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
-        <div>
-          <div style={{ fontSize:11, color:C.textSoft, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>AI-skanning</div>
-          <h3 style={{ margin:"2px 0 0", fontSize:20, fontWeight:800, color:C.text }}>Skann vinflasken</h3>
-        </div>
-        <button onClick={onClose} style={{ background:C.bg, border:"none", borderRadius:10, width:34, height:34, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:C.text }}><IcoClose /></button>
+  const reset = () => { stopCamera(); setResult(null); setError(""); setMode("choose"); };
+
+  // ── UI ──────────────────────────────────────────────────────────────────────
+  const header = (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+      <div>
+        <div style={{ fontSize:11, color:C.textSoft, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Skann vin</div>
+        <h3 style={{ margin:"2px 0 0", fontSize:20, fontWeight:800, color:C.text }}>
+          {mode==="choose" ? "Velg metode" : mode==="barcode" ? "Strekkode" : "Etikett"}
+        </h3>
       </div>
-
-      {!result && !scanning && (
-        <div>
-          <p style={{ fontSize:14, color:C.textMid, lineHeight:1.6, marginBottom:16 }}>
-            Ta bilde av etiketten. Claude AI identifiserer vinen og søker direkte på Vinmonopolet.
-          </p>
-          <input ref={fileRef} type="file" accept="image/*" onChange={e => handleImage(e.target.files?.[0])} style={{ display:"none" }} />
-          <button onClick={() => { fileRef.current.value = ""; fileRef.current.click(); }}
-            style={{ width:"100%", background:C.primary, color:"#fff", border:"none", borderRadius:12, padding:"14px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-            <IcoCamera s={18} /> Velg eller ta bilde
-          </button>
-        </div>
-      )}
-
-      {scanning && (
-        <div style={{ textAlign:"center", padding:"40px 20px" }}>
-          <div style={{ fontSize:40, marginBottom:12 }}>🔍</div>
-          <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:8 }}>Analyserer etikett...</div>
-          <div style={{ fontSize:13, color:C.textSoft }}>Claude AI identifiserer vinen og søker på Vinmonopolet</div>
-        </div>
-      )}
-
-      {error && (
-        <div style={{ background:"#fbe9e7", color:C.red, padding:"12px 16px", borderRadius:10, marginBottom:16, fontSize:14 }}>
-          {error}
-          <button onClick={() => { setError(""); setResult(null); }} style={{ marginLeft:8, background:"none", border:"none", cursor:"pointer", color:C.red, fontWeight:700 }}>Prøv igjen</button>
-        </div>
-      )}
-
-      {result && (
-        <div>
-          {result.wineInfo?.name && (
-            <div style={{ background:C.bg, borderRadius:12, padding:"12px 16px", marginBottom:16, border:`1px solid ${C.border}` }}>
-              <div style={{ fontSize:11, color:C.textSoft, fontWeight:700, textTransform:"uppercase", marginBottom:6 }}>Claude identifiserte:</div>
-              <div style={{ fontSize:15, fontWeight:700, color:C.text }}>{result.wineInfo.name}</div>
-              {result.wineInfo.producer && <div style={{ fontSize:12, color:C.textMid }}>{result.wineInfo.producer}{result.wineInfo.year ? ` · ${result.wineInfo.year}` : ""}</div>}
-            </div>
-          )}
-
-          {result.wines?.length > 0 ? (
-            <div>
-              <div style={{ fontSize:13, color:C.textSoft, marginBottom:10 }}>Fant {result.wines.length} treff på Vinmonopolet:</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:8, maxHeight:320, overflowY:"auto" }}>
-                {result.wines.map(wine => (
-                  <button key={wine.id} onClick={() => { onScanComplete([wine], result.wineInfo); onClose(); }}
-                    style={{ display:"flex", gap:10, alignItems:"center", padding:"10px 12px", background:"#fff", border:`1.5px solid ${C.border}`, borderRadius:10, cursor:"pointer", textAlign:"left", fontFamily:"inherit", width:"100%" }}>
-                    <WineBottleImg wine={wine} size={30} />
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{wine.name}</div>
-                      <div style={{ fontSize:11, color:C.textSoft }}>{wine.country}{wine.year ? ` · ${wine.year}` : ""}{wine.price ? ` · ${wine.price.toLocaleString("nb-NO")} kr` : ""}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <button onClick={() => { setResult(null); setError(""); }}
-                style={{ marginTop:12, width:"100%", background:C.bg, color:C.text, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
-                Skann et nytt bilde
-              </button>
-            </div>
-          ) : (
-            <div style={{ textAlign:"center", padding:"20px", background:C.bg, borderRadius:12 }}>
-              <div style={{ fontSize:30, marginBottom:8 }}>🔍</div>
-              <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:6 }}>Ingen treff på Vinmonopolet</div>
-              <div style={{ fontSize:12, color:C.textSoft }}>Prøv manuelt søk i databasefanen</div>
-              <button onClick={() => { setResult(null); setError(""); }}
-                style={{ marginTop:12, width:"100%", background:C.bg, color:C.text, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
-                Skann et nytt bilde
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </>
+      <button onClick={onClose} style={{ background:C.bg, border:"none", borderRadius:10, width:34, height:34, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:C.text }}><IcoClose /></button>
+    </div>
   );
-  return <Overlay isMobile={isMobile} onClose={onClose} wide>{content}</Overlay>;
+
+  // Choose mode
+  if (mode === "choose" && !result && !scanning) return (
+    <Overlay isMobile={isMobile} onClose={onClose}>
+      {header}
+      <p style={{ fontSize:14, color:C.textMid, lineHeight:1.6, marginBottom:20 }}>
+        Skann strekkoden for rask og nøyaktig treff, eller ta bilde av etiketten for AI-gjenkjenning.
+      </p>
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        <button onClick={startBarcode}
+          style={{ background:C.primary, color:"#fff", border:"none", borderRadius:12, padding:"16px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+          <span style={{ fontSize:22 }}>📊</span> Skann strekkode
+          <span style={{ fontSize:11, background:"rgba(255,255,255,0.2)", borderRadius:20, padding:"2px 8px", marginLeft:4 }}>Anbefalt</span>
+        </button>
+        <button onClick={() => { setMode("label"); fileRef.current?.click(); }}
+          style={{ background:C.bg, color:C.text, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"16px", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+          <IcoCamera s={20} /> Skann etikett (AI)
+        </button>
+      </div>
+      <input ref={fileRef} type="file" accept="image/*" onChange={e => handleLabelImage(e.target.files?.[0])} style={{ display:"none" }} />
+    </Overlay>
+  );
+
+  // Barcode scanner view
+  if (mode === "barcode" && !result && !scanning) return (
+    <Overlay isMobile={isMobile} onClose={() => { stopCamera(); onClose(); }} wide>
+      {header}
+      {error ? (
+        <div style={{ background:"#fbe9e7", color:C.red, padding:"12px 16px", borderRadius:10, marginBottom:12 }}>{error}</div>
+      ) : (
+        <div style={{ position:"relative", borderRadius:12, overflow:"hidden", background:"#000", aspectRatio:"4/3" }}>
+          <video ref={videoRef} autoPlay playsInline muted style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+          {/* Aiming box */}
+          <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none" }}>
+            <div style={{ width:"70%", height:120, border:`2px solid ${C.gold}`, borderRadius:8, boxShadow:`0 0 0 2000px rgba(0,0,0,0.4)` }} />
+          </div>
+          <div style={{ position:"absolute", bottom:16, left:0, right:0, textAlign:"center", color:"#fff", fontSize:13, fontWeight:600 }}>
+            Hold strekkoden innenfor rammen
+          </div>
+        </div>
+      )}
+      <button onClick={reset} style={{ marginTop:12, width:"100%", background:C.bg, color:C.text, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px", fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>
+        ← Tilbake
+      </button>
+    </Overlay>
+  );
+
+  // Scanning spinner
+  if (scanning) return (
+    <Overlay isMobile={isMobile} onClose={onClose}>
+      {header}
+      <div style={{ textAlign:"center", padding:"40px 20px" }}>
+        <div style={{ fontSize:40, marginBottom:12 }}>🔍</div>
+        <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:8 }}>
+          {mode === "barcode" ? "Slår opp strekkode..." : "Analyserer etikett med AI..."}
+        </div>
+        <div style={{ fontSize:13, color:C.textSoft }}>
+          {mode === "barcode" ? "Søker i Vinmonopolets sortiment" : "Claude gjenkjenner vinen"}
+        </div>
+      </div>
+    </Overlay>
+  );
+
+  // Error state
+  if (error && !result) return (
+    <Overlay isMobile={isMobile} onClose={onClose}>
+      {header}
+      <div style={{ background:"#fbe9e7", color:C.red, padding:"14px 16px", borderRadius:10, marginBottom:16, fontSize:14 }}>{error}</div>
+      <button onClick={reset} style={{ width:"100%", background:C.bg, color:C.text, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px", fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>Prøv igjen</button>
+    </Overlay>
+  );
+
+  // Results
+  if (result) return (
+    <Overlay isMobile={isMobile} onClose={onClose} wide>
+      {header}
+      {result.wineInfo?.name && (
+        <div style={{ background:C.bg, borderRadius:12, padding:"12px 16px", marginBottom:16, border:`1px solid ${C.border}` }}>
+          <div style={{ fontSize:11, color:C.textSoft, fontWeight:700, textTransform:"uppercase", marginBottom:4 }}>
+            {result.method === "barcode" ? `📊 Strekkode: ${result.barcode}` : "🤖 Claude identifiserte:"}
+          </div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text }}>{result.wineInfo.name}</div>
+          {result.wineInfo.producer && <div style={{ fontSize:12, color:C.textMid }}>{result.wineInfo.producer}{result.wineInfo.year ? ` · ${result.wineInfo.year}` : ""}</div>}
+        </div>
+      )}
+      {result.wines?.length > 0 ? (
+        <div>
+          <div style={{ fontSize:13, color:C.textSoft, marginBottom:10 }}>
+            {result.wines.length === 1 ? "Fant eksakt match:" : `Fant ${result.wines.length} treff:`}
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, maxHeight:340, overflowY:"auto" }}>
+            {result.wines.map(wine => (
+              <button key={wine.id} onClick={() => { onScanComplete([wine], result.wineInfo); onClose(); }}
+                style={{ display:"flex", gap:10, alignItems:"center", padding:"10px 12px", background:"#fff", border:`1.5px solid ${C.border}`, borderRadius:10, cursor:"pointer", textAlign:"left", fontFamily:"inherit", width:"100%" }}>
+                <WineBottleImg wine={wine} size={30} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{wine.name}</div>
+                  <div style={{ fontSize:11, color:C.textSoft }}>{wine.country}{wine.year ? ` · ${wine.year}` : ""}{wine.price ? ` · ${wine.price.toLocaleString("nb-NO")} kr` : ""}</div>
+                </div>
+                {result.method === "barcode" && <span style={{ fontSize:11, background:"#e8f5e9", color:C.green, borderRadius:20, padding:"2px 8px", flexShrink:0 }}>✓ Eksakt</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div style={{ textAlign:"center", padding:"20px", background:C.bg, borderRadius:12, marginBottom:12 }}>
+          <div style={{ fontSize:30, marginBottom:8 }}>🔍</div>
+          <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:4 }}>Ingen treff i databasen</div>
+          <div style={{ fontSize:12, color:C.textSoft }}>Prøv manuelt søk</div>
+        </div>
+      )}
+      <button onClick={reset} style={{ marginTop:10, width:"100%", background:C.bg, color:C.text, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px", fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>
+        ← Skann ny vin
+      </button>
+    </Overlay>
+  );
+
+  return null;
 }
 
 // ─── FILTER PANEL ─────────────────────────────────────────────────────────────
