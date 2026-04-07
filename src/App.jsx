@@ -233,7 +233,7 @@ function WineCard({ wine, onSelect, onAddTasting, onAddToCellar, isDesktop }) {
           <div style={{ display:"flex", gap:5, marginTop:7, flexWrap:"wrap" }}>
             {wine.mainCategory && <span style={{ background:catColor+"18", color:catColor, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:600 }}>{wine.mainCategory}</span>}
             {wine.country && <span style={{ background:C.bg, color:C.textMid, padding:"2px 9px", borderRadius:20, fontSize:11 }}>{wine.country}</span>}
-            {wine.isEco && <span style={{ background:"#e8f5e9", color:C.green, padding:"2px 7px", borderRadius:20, fontSize:10, display:"flex", alignItems:"center", gap:3 }}><IcoLeaf /> Øko</span>}
+
           </div>
           {wine.grapes && <div style={{ fontSize:11, color:C.textSoft, marginTop:5, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>🍇 {wine.grapes}</div>}
         </div>
@@ -278,8 +278,7 @@ function WineDetail({ wine, onClose, onAddTasting, onAddToCellar, isMobile }) {
         {wine.region && <span style={{ background:C.bg, color:C.textMid, padding:"3px 11px", borderRadius:20, fontSize:12 }}>{wine.region}</span>}
         {wine.subRegion && <span style={{ background:C.bg, color:C.textMid, padding:"3px 11px", borderRadius:20, fontSize:12 }}>{wine.subRegion}</span>}
         {wine.year && <span style={{ background:C.bg, color:C.textMid, padding:"3px 11px", borderRadius:20, fontSize:12, fontWeight:600 }}>📅 {wine.year}</span>}
-        {wine.isEco && <span style={{ background:"#e8f5e9", color:C.green, padding:"3px 11px", borderRadius:20, fontSize:12 }}><IcoLeaf s={11}/> Økologisk</span>}
-        {wine.isVegan && <span style={{ background:"#e8f5e9", color:C.green, padding:"3px 11px", borderRadius:20, fontSize:12 }}>🌱 Vegansk</span>}
+
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>

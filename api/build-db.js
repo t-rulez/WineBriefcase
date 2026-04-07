@@ -1,63 +1,158 @@
 import { neon } from "@neondatabase/serverless";
 
 const SEARCHES = [
-  // ── RØDVIN ITALIA ────────────────────────────────────────────────────────
+  // ── RØDVIN ITALIA ──────────────────────────────────────────────────────────
   "barolo","barbaresco","amarone","brunello","chianti",
   "ripasso","primitivo","nero d'avola","montepulciano","sagrantino",
   "valpolicella","barbera","dolcetto","nebbiolo","sangiovese",
-  "tignanello","sassicaia","ornellaia","solaia","super tuscan",
-  // ── RØDVIN FRANKRIKE ─────────────────────────────────────────────────────
+  "tignanello","sassicaia","ornellaia","super tuscan",
+  // ── RØDVIN FRANKRIKE ───────────────────────────────────────────────────────
   "bordeaux","pomerol","saint-emilion","pauillac","margaux",
   "saint-julien","gevrey","pommard","volnay","nuits-saint-georges",
   "chambolle","vosne","beaune","chateauneuf","hermitage",
   "crozes-hermitage","saint-joseph","cornas","gigondas","vacqueyras",
   "côtes du rhône","languedoc","corbières","minervois","bandol",
   "fleurie","morgon","moulin-a-vent","brouilly","beaujolais",
-  // ── RØDVIN SPANIA ────────────────────────────────────────────────────────
+  // ── RØDVIN SPANIA ──────────────────────────────────────────────────────────
   "rioja","ribera del duero","priorat","bierzo","toro",
   "jumilla","montsant","navarra","tempranillo","garnacha",
   "monastrell","mencía","vega sicilia","alvaro palacios",
-  // ── RØDVIN SØRAMERIKA ────────────────────────────────────────────────────
+  // ── RØDVIN SØRAMERIKA ──────────────────────────────────────────────────────
   "malbec","carmenere","zuccardi","catena","almaviva",
   "clos de los siete","achaval ferrer","cono sur red",
-  // ── RØDVIN USA / AUSTRALIA / NZ / SØR-AFRIKA ────────────────────────────
+  // ── RØDVIN USA / AUSTRALIA / NZ / SØR-AFRIKA ───────────────────────────────
   "napa cabernet","sonoma pinot","oregon pinot","barossa shiraz",
   "mclaren vale","margaret river","marlborough pinot",
   "pinotage","kanonkop","penfolds",
-  // ── RØDVIN PORTUGAL / ØSTERRIKE / HELLAS ────────────────────────────────
+  // ── RØDVIN PORTUGAL / ØSTERRIKE / HELLAS ───────────────────────────────────
   "douro","dao","alentejo","quinta do crasto",
   "blaufrankisch","zweigelt","agiorgitiko","xinomavro",
-  // ── HVITVIN FRANKRIKE ────────────────────────────────────────────────────
+  // ── HVITVIN FRANKRIKE ──────────────────────────────────────────────────────
   "chablis","meursault","puligny","chassagne","pouilly-fuisse",
   "sancerre","pouilly-fume","muscadet","vouvray","condrieu",
   "alsace riesling","alsace gewurztraminer","alsace pinot gris",
   "macon","saint-veran","rully",
-  // ── HVITVIN ITALIA ───────────────────────────────────────────────────────
+  // ── HVITVIN ITALIA ─────────────────────────────────────────────────────────
   "soave","gavi","vermentino","greco di tufo","fiano",
   "pinot grigio","lugana","verdicchio","falanghina","arneis",
   "moscato","friulano","ribolla",
-  // ── HVITVIN SPANIA / PORTUGAL ────────────────────────────────────────────
+  // ── HVITVIN SPANIA / PORTUGAL ──────────────────────────────────────────────
   "albarino","verdejo","godello","txakoli","vinho verde",
-  // ── HVITVIN TYSKLAND / ØSTERRIKE ─────────────────────────────────────────
+  // ── HVITVIN TYSKLAND / ØSTERRIKE ───────────────────────────────────────────
   "mosel riesling","rheingau riesling","pfalz riesling",
   "spätlese","auslese","grüner veltliner","wachau",
-  // ── HVITVIN NY VERDEN ────────────────────────────────────────────────────
+  // ── HVITVIN NY VERDEN ──────────────────────────────────────────────────────
   "chardonnay california","cloudy bay","sauvignon blanc marlborough",
   "kim crawford","greywacke","riesling australia",
-  // ── CHAMPAGNE OG MUSSERENDE ──────────────────────────────────────────────
+  // ── CHAMPAGNE OG MUSSERENDE ────────────────────────────────────────────────
   "champagne","krug","bollinger","veuve clicquot",
   "taittinger","billecart","pol roger","louis roederer",
   "dom perignon","blanc de blancs","rosé champagne",
   "prosecco","cava","cremant","franciacorta",
-  // ── ROSÉVIN ──────────────────────────────────────────────────────────────
+  // ── ROSÉVIN ────────────────────────────────────────────────────────────────
   "provence rosé","tavel","bandol rosé","côtes de provence",
-  // ── DESSERTVIN OG STERKVIN ───────────────────────────────────────────────
+  // ── DESSERTVIN OG STERKVIN ─────────────────────────────────────────────────
   "sauternes","tokaji","vintage port","graham port","taylor port",
   "sherry","madeira","muscat beaumes","banyuls",
 ];
 
+// Hent produktside fra vinmonopolet.no og parse ut all data
+async function scrapeVmpProduct(productId) {
+  try {
+    const r = await fetch(`https://www.vinmonopolet.no/p/${productId}`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "nb-NO,nb;q=0.9",
+      }
+    });
+    if (!r.ok) return null;
+    const html = await r.text();
+
+    // Finn JSON-data i <script type="application/json"> taggen som inneholder produktdata
+    const scriptRegex = /<script type="application\/json">([\s\S]*?)<\/script>/g;
+    let m;
+    while ((m = scriptRegex.exec(html)) !== null) {
+      try {
+        const json = JSON.parse(m[1]);
+        if (json?.product?.code) return json.product;
+      } catch {}
+    }
+    return null;
+  } catch { return null; }
+}
+
+function parseProduct(p) {
+  if (!p) return null;
+
+  // Pris
+  const price = p.price?.value ? Math.round(p.price.value) : null;
+
+  // Volum i liter (API gir centiliter)
+  const volume = p.volume?.value ? p.volume.value / 100 : 0.75;
+
+  // Alkohol fra traits
+  const alcoholTrait = (p.content?.traits || []).find(t => t.name === "Alkohol");
+  const alcohol = alcoholTrait
+    ? parseFloat(alcoholTrait.formattedValue.replace("%", "").replace(",", "."))
+    : null;
+
+  // Druer fra ingredients
+  const grapes = (p.content?.ingredients || [])
+    .map(i => i.formattedValue)
+    .join(", ");
+
+  // Smaksprofil fra characteristics
+  const chars = p.content?.characteristics || [];
+  const getChar = (name) => {
+    const c = chars.find(c => c.name === name);
+    return c ? parseInt(c.value) : null;
+  };
+  const taste_fullness   = getChar("Fylde");
+  const taste_freshness  = getChar("Friskhet");
+  const taste_tannins    = getChar("Garvestoffer");
+
+  // Stil-kode for sødme og bitterhet (ikke alltid tilgjengelig)
+  const sugarTrait = (p.content?.traits || []).find(t => t.name === "Sukker");
+  const sugarVal = sugarTrait
+    ? parseFloat(sugarTrait.formattedValue.replace("g/l", "").replace(",", ".").trim())
+    : null;
+  // Beregn sødme fra sukkermengde (0-3g/l = tørr=1-2, 3-12=halvtørr=3-6, 12+=søt=7+)
+  const taste_sweetness = sugarVal !== null
+    ? sugarVal < 3 ? 1 : sugarVal < 6 ? 3 : sugarVal < 12 ? 5 : sugarVal < 45 ? 8 : 12
+    : null;
+
+  // Beskrivelse: kombiner smell og taste
+  const description_no = [p.smell, p.taste].filter(Boolean).join(" ") || "";
+
+  // Aromaer fra style-beskrivelse og smell
+  const aromaSource = [p.content?.style?.name, p.smell].filter(Boolean).join(" ");
+  const aromaWords = aromaSource.match(/\b(kirsebær|bjørnebær|bringebær|plomme|fiken|sjokolade|vanilje|lakriss|pepper|krydder|rosin|blomst|eple|sitrus|fersken|aprikos|nøtt|kaffe|tobakk|lær|jord|mineralsk|urter|viol|roser|brioche|smør|honning|hasselnøtt)\b/gi) || [];
+  const aromas = [...new Set(aromaWords.map(a => a.toLowerCase()))].slice(0, 5);
+
+  return {
+    price,
+    volume,
+    alcohol,
+    grapes,
+    taste_fullness,
+    taste_freshness,
+    taste_tannins,
+    taste_sweetness,
+    description_no,
+    aromas,
+    color:      p.color || "",
+    country:    p.main_country?.name || "",
+    region:     p.district?.name || "",
+    sub_region: p.sub_District?.name || "",
+    producer:   p.main_producer?.name || "",
+    type:       p.main_category?.name || "",
+    year:       p.year ? parseInt(p.year) : null,
+    flavor_profile: p.content?.style?.name || "",
+  };
+}
+
 async function getVmpProducts(apiKey, searchTerm) {
-  const headers = { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" };
   const params = new URLSearchParams({
     maxResults: "20",
     start: "0",
@@ -65,119 +160,28 @@ async function getVmpProducts(apiKey, searchTerm) {
   });
   const res = await fetch(
     `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
-    { headers }
+    { headers: { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" } }
   );
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data) ? data : [];
 }
 
-async function enrichWithClaude(claudeKey, wines) {
-  if (wines.length === 0) return [];
-  const wineList = wines.map(w => `ID:${w.id} | ${w.name}`).join("\n");
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": claudeKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 6000,
-      messages: [{
-        role: "user",
-        content: `For each wine below, provide detailed wine data. Respond ONLY with a valid JSON array — no markdown, no explanation.
-
-${wineList}
-
-Return array of objects:
-{
-  "id": "exact ID from input",
-  "producer": "producer name",
-  "country": "country in Norwegian",
-  "region": "wine region",
-  "sub_region": "sub-region or empty string",
-  "year": null or year number if visible in name,
-  "type": "one of: Rødvin, Hvitvin, Rosévin, Musserende vin, Champagne, Sterkvin, Dessertvin",
-  "grapes": "grape varieties",
-  "alcohol": alcohol as number (e.g. 13.5),
-  "volume": 0.75,
-  "price": NOK price estimate as integer,
-  "color": "color in Norwegian",
-  "flavor_profile": "style in Norwegian (4-6 words)",
-  "taste_fullness": 1-12,
-  "taste_sweetness": 1-12,
-  "taste_freshness": 1-12,
-  "taste_tannins": 1-12,
-  "taste_bitterness": 1-12,
-  "aromas": ["aroma1","aroma2","aroma3","aroma4"],
-  "description_no": "2-3 sentences in Norwegian about this wine",
-  "is_eco": false,
-  "is_vegan": false
-}`,
-      }],
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Claude ${res.status}: ${err.substring(0, 100)}`);
-  }
-  const data = await res.json();
-  const text = data.content?.[0]?.text || "[]";
-  const match = text.match(/\[[\s\S]*\]/);
-  if (!match) return [];
-  try { return JSON.parse(match[0]); } catch { return []; }
-}
-
 export default async function handler(req, res) {
-  const vmpKey    = process.env.VINMONOPOLET_API_KEY;
-  const claudeKey = process.env.ANTHROPIC_API_KEY;
-
-  if (!vmpKey || !claudeKey)
-    return res.status(500).json({ error: "Mangler env-variabler" });
+  const vmpKey = process.env.VINMONOPOLET_API_KEY;
+  if (!vmpKey) return res.status(500).json({ error: "Mangler VINMONOPOLET_API_KEY" });
 
   const sql = neon(process.env.DATABASE_URL);
-  const batchIndex = parseInt(req.query.batch || "0");
-  const batchSize  = 1; // 1 søkterm per kall — unngår Vercel timeout
-  const searches   = SEARCHES.slice(batchIndex * batchSize, (batchIndex + 1) * batchSize);
-  const totalBatches = SEARCHES.length; // 1 per batch
+  const batchIndex  = parseInt(req.query.batch || "0");
+  const searches    = SEARCHES.slice(batchIndex, batchIndex + 1);
+  const totalBatches = SEARCHES.length;
 
-  if (searches.length === 0) {
+  if (batchIndex >= totalBatches) {
     const count = await sql`SELECT COUNT(*) as c FROM vb_wines`;
-    return res.status(200).json({
-      done: true,
-      totalWines: Number(count[0].c),
-      message: "Database er ferdig bygget!",
-    });
+    return res.status(200).json({ done: true, totalWines: Number(count[0].c) });
   }
 
-  // Sjekk om denne batchen allerede er kjørt (crash-recovery)
-  try {
-    const done = await sql`
-      SELECT COUNT(*) as c FROM vb_build_log WHERE batch_index = ${batchIndex}
-    `;
-    if (Number(done[0].c) > 0) {
-      const count = await sql`SELECT COUNT(*) as c FROM vb_wines`;
-      const nextBatch = batchIndex + 1;
-      const hasMore = nextBatch < SEARCHES.length;
-      return res.status(200).json({
-        batch: `${batchIndex + 1}/${SEARCHES.length}`,
-        searches,
-        inserted: 0,
-        skipped: 0,
-        totalInDb: Number(count[0].c),
-        hasMore,
-        nextUrl: hasMore ? `/api/build-db?batch=${nextBatch}` : null,
-        details: [{ term: searches[0], skipped: "allerede kjørt" }],
-        alreadyDone: true,
-      });
-    }
-  } catch { /* tabell finnes ikke ennå, fortsett */ }
-
-  // Opprett tabell
+  // Opprett tabeller
   await sql`
     CREATE TABLE IF NOT EXISTS vb_wines (
       id SERIAL PRIMARY KEY,
@@ -195,19 +199,16 @@ export default async function handler(req, res) {
       price INTEGER,
       color TEXT DEFAULT '',
       flavor_profile TEXT DEFAULT '',
-      taste_fullness INTEGER DEFAULT 6,
-      taste_sweetness INTEGER DEFAULT 2,
-      taste_freshness INTEGER DEFAULT 7,
-      taste_tannins INTEGER DEFAULT 5,
-      taste_bitterness INTEGER DEFAULT 3,
+      taste_fullness INTEGER,
+      taste_sweetness INTEGER,
+      taste_freshness INTEGER,
+      taste_tannins INTEGER,
+      taste_bitterness INTEGER,
       aromas TEXT DEFAULT '[]',
-      description_no TEXT DEFAULT '',
-      is_eco BOOLEAN DEFAULT false,
-      is_vegan BOOLEAN DEFAULT false
+      description_no TEXT DEFAULT ''
     )
   `;
 
-  // Checkpoint-tabell for å spore fremgang
   await sql`
     CREATE TABLE IF NOT EXISTS vb_build_log (
       id SERIAL PRIMARY KEY,
@@ -215,94 +216,118 @@ export default async function handler(req, res) {
       search_term TEXT NOT NULL,
       found INTEGER DEFAULT 0,
       inserted INTEGER DEFAULT 0,
-      skipped INTEGER DEFAULT 0,
       completed_at TIMESTAMP DEFAULT NOW()
     )
   `;
 
-  let inserted = 0, skipped = 0;
+  // Sjekk om allerede gjort
+  const done = await sql`SELECT COUNT(*) as c FROM vb_build_log WHERE batch_index = ${batchIndex}`;
+  if (Number(done[0].c) > 0) {
+    const count = await sql`SELECT COUNT(*) as c FROM vb_wines`;
+    return res.status(200).json({
+      batch: `${batchIndex + 1}/${totalBatches}`,
+      searches,
+      inserted: 0,
+      totalInDb: Number(count[0].c),
+      hasMore: batchIndex + 1 < totalBatches,
+      nextUrl: `/api/build-db?batch=${batchIndex + 1}`,
+      alreadyDone: true,
+      details: [{ term: searches[0], status: "allerede kjørt" }],
+    });
+  }
+
+  let inserted = 0;
   const details = [];
 
   for (const term of searches) {
+    // Steg 1: Finn varenumre via åpent API
     const vmpProducts = await getVmpProducts(vmpKey, term);
     if (vmpProducts.length === 0) {
       details.push({ term, found: 0 });
       continue;
     }
 
-    const wineInputs = vmpProducts
+    const wineIds = vmpProducts
       .map(p => ({ id: p.basic?.productId, name: p.basic?.productShortName }))
       .filter(w => w.id && w.name);
 
-    // Chunk into batches of 20 for Claude
-    let enriched = [];
-    const CHUNK = 10;
-    for (let i = 0; i < wineInputs.length; i += CHUNK) {
-      const chunk = wineInputs.slice(i, i + CHUNK);
-      try {
-        const result = await enrichWithClaude(claudeKey, chunk);
-        enriched = enriched.concat(result);
-        
-      } catch(e) {
-        details.push({ term, chunkError: e.message });
-      }
+    // Steg 2: Scrape produktsider parallelt (maks 5 om gangen)
+    const scraped = [];
+    const PARALLEL = 5;
+    for (let i = 0; i < wineIds.length; i += PARALLEL) {
+      const batch = wineIds.slice(i, i + PARALLEL);
+      const results = await Promise.all(
+        batch.map(async w => {
+          const product = await scrapeVmpProduct(w.id);
+          const parsed  = parseProduct(product);
+          return { ...w, parsed };
+        })
+      );
+      scraped.push(...results);
     }
 
-    for (const w of enriched) {
-      const vmp = wineInputs.find(v => v.id === w.id);
-      if (!vmp || !w.id) continue;
+    // Steg 3: Lagre i databasen
+    for (const w of scraped) {
+      if (!w.parsed) continue;
+      const d = w.parsed;
       try {
         await sql`
           INSERT INTO vb_wines (
             product_id, name, producer, country, region, sub_region,
             year, type, grapes, alcohol, volume, price, color,
             flavor_profile, taste_fullness, taste_sweetness, taste_freshness,
-            taste_tannins, taste_bitterness, aromas, description_no, is_eco, is_vegan
+            taste_tannins, taste_bitterness, aromas, description_no
           ) VALUES (
-            ${w.id}, ${vmp.name}, ${w.producer||""}, ${w.country||""},
-            ${w.region||""}, ${w.sub_region||""}, ${w.year||null},
-            ${w.type||"Rødvin"}, ${w.grapes||""}, ${w.alcohol||null},
-            ${w.volume||0.75}, ${w.price||null}, ${w.color||""},
-            ${w.flavor_profile||""}, ${w.taste_fullness||6},
-            ${w.taste_sweetness||2}, ${w.taste_freshness||7},
-            ${w.taste_tannins||5}, ${w.taste_bitterness||3},
-            ${JSON.stringify(w.aromas||[])}, ${w.description_no||""},
-            ${!!w.is_eco}, ${!!w.is_vegan}
+            ${w.id}, ${w.name}, ${d.producer}, ${d.country},
+            ${d.region}, ${d.sub_region}, ${d.year},
+            ${d.type}, ${d.grapes}, ${d.alcohol},
+            ${d.volume}, ${d.price}, ${d.color},
+            ${d.flavor_profile}, ${d.taste_fullness}, ${d.taste_sweetness},
+            ${d.taste_freshness}, ${d.taste_tannins}, ${null},
+            ${JSON.stringify(d.aromas)}, ${d.description_no}
           )
           ON CONFLICT (product_id) DO UPDATE SET
             name           = EXCLUDED.name,
             producer       = EXCLUDED.producer,
             country        = EXCLUDED.country,
             region         = EXCLUDED.region,
+            sub_region     = EXCLUDED.sub_region,
+            year           = EXCLUDED.year,
             type           = EXCLUDED.type,
-            price          = EXCLUDED.price,
             grapes         = EXCLUDED.grapes,
+            alcohol        = EXCLUDED.alcohol,
+            volume         = EXCLUDED.volume,
+            price          = EXCLUDED.price,
+            color          = EXCLUDED.color,
+            flavor_profile = EXCLUDED.flavor_profile,
+            taste_fullness = EXCLUDED.taste_fullness,
+            taste_sweetness= EXCLUDED.taste_sweetness,
+            taste_freshness= EXCLUDED.taste_freshness,
+            taste_tannins  = EXCLUDED.taste_tannins,
+            aromas         = EXCLUDED.aromas,
             description_no = EXCLUDED.description_no
         `;
         inserted++;
-      } catch { skipped++; }
+      } catch { /* skip duplicates */ }
     }
 
-    details.push({ term, found: vmpProducts.length, enriched: enriched.length });
+    details.push({ term, found: wineIds.length, scraped: scraped.filter(s => s.parsed).length, inserted });
 
-    // Commit checkpoint — lagrer fremgang etter hver søkterm
+    // Commit checkpoint
     await sql`
-      INSERT INTO vb_build_log (batch_index, search_term, found, inserted, skipped)
-      VALUES (${batchIndex}, ${term}, ${vmpProducts.length}, ${inserted}, ${skipped})
+      INSERT INTO vb_build_log (batch_index, search_term, found, inserted)
+      VALUES (${batchIndex}, ${term}, ${wineIds.length}, ${inserted})
     `;
-
-    
   }
 
   const count = await sql`SELECT COUNT(*) as c FROM vb_wines`;
   const nextBatch = batchIndex + 1;
-  const hasMore = nextBatch < totalBatches;
+  const hasMore   = nextBatch < totalBatches;
 
   return res.status(200).json({
     batch: `${batchIndex + 1}/${totalBatches}`,
     searches,
     inserted,
-    skipped,
     totalInDb: Number(count[0].c),
     hasMore,
     nextUrl: hasMore ? `/api/build-db?batch=${nextBatch}` : null,
