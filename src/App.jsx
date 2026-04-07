@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 
 // ─── FARGER ──────────────────────────────────────────────────────────────────
 const C = {
@@ -465,18 +466,7 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
     setMode("barcode");
     setError("");
     try {
-      // Last ZXing browser-pakken fra jsDelivr (UMD-format)
-      if (!window.ZXingBrowser) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement("script");
-          s.src = "https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/index.min.js";
-          s.onload = resolve;
-          s.onerror = () => reject(new Error("Kunne ikke laste ZXing"));
-          document.head.appendChild(s);
-        });
-      }
-
-      const reader = new window.ZXingBrowser.BrowserMultiFormatReader();
+      const reader = new BrowserMultiFormatReader();
       readerRef.current = reader;
 
       const stream = await navigator.mediaDevices.getUserMedia({
