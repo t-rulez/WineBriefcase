@@ -580,25 +580,105 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
 // ─── FILTER PANEL ─────────────────────────────────────────────────────────────
 const CATEGORIES = ["Rødvin","Hvitvin","Rosévin","Musserende vin","Champagne","Sterkvin","Dessertvin","Øl","Brennevin"];
 
-function FilterPanel({ isMobile, open, onClose, filterCat, setFilterCat }) {
-  const reset = () => setFilterCat("");
+function PriceSlider({ min, max, value, onChange }) {
+  const [localMin, setLocalMin] = useState(value[0]);
+  const [localMax, setLocalMax] = useState(value[1]);
+
+  const commitMin = (v) => { const n = Math.min(Number(v), localMax - 50); setLocalMin(n); onChange([n, localMax]); };
+  const commitMax = (v) => { const n = Math.max(Number(v), localMin + 50); setLocalMax(n); onChange([localMin, n]); };
+
+  const pctMin = ((localMin - min) / (max - min)) * 100;
+  const pctMax = ((localMax - min) / (max - min)) * 100;
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+        <span style={{ fontSize:13, fontWeight:700, color:C.primary }}>{localMin.toLocaleString("nb-NO")} kr</span>
+        <span style={{ fontSize:13, fontWeight:700, color:C.primary }}>{localMax.toLocaleString("nb-NO")} kr</span>
+      </div>
+      <div style={{ position:"relative", height:20, marginBottom:4 }}>
+        {/* Track */}
+        <div style={{ position:"absolute", top:"50%", left:0, right:0, height:4, background:C.borderLight, borderRadius:2, transform:"translateY(-50%)" }} />
+        {/* Active range */}
+        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, right:`${100-pctMax}%`, height:4, background:C.primary, borderRadius:2, transform:"translateY(-50%)" }} />
+        {/* Min thumb */}
+        <input type="range" min={min} max={max} step={50} value={localMin}
+          onChange={e => { setLocalMin(Number(e.target.value)); }}
+          onMouseUp={e => commitMin(e.target.value)}
+          onTouchEnd={e => commitMin(e.target.value)}
+          style={{ position:"absolute", width:"100%", height:"100%", opacity:0, cursor:"pointer", margin:0 }} />
+        {/* Max thumb */}
+        <input type="range" min={min} max={max} step={50} value={localMax}
+          onChange={e => { setLocalMax(Number(e.target.value)); }}
+          onMouseUp={e => commitMax(e.target.value)}
+          onTouchEnd={e => commitMax(e.target.value)}
+          style={{ position:"absolute", width:"100%", height:"100%", opacity:0, cursor:"pointer", margin:0 }} />
+        {/* Visual thumbs */}
+        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, width:18, height:18, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 1px 4px rgba(92,26,26,0.3)", pointerEvents:"none" }} />
+        <div style={{ position:"absolute", top:"50%", left:`${pctMax}%`, width:18, height:18, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 1px 4px rgba(92,26,26,0.3)", pointerEvents:"none" }} />
+      </div>
+    </div>
+  );
+}
+
+function FilterPanel({ isMobile, open, onClose, filters, setFilters }) {
+  const reset = () => setFilters({ cat:"", country:"", region:"", price:[0,5000], status:"aktiv" });
+
+  const chip = (val, current, onClick) => (
+    <button key={val||"__all__"} onClick={onClick}
+      style={{ padding:"6px 12px", borderRadius:20, border:`1.5px solid ${current===val?C.primary:C.border}`, background:current===val?C.primary:"#fff", color:current===val?"#fff":C.textMid, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
+      {val || "Alle"}
+    </button>
+  );
+
   const content = (
     <>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
         <span style={{ fontSize:17, fontWeight:800, color:C.text }}>Filter</span>
         <button onClick={reset} style={{ background:"none", border:"none", color:C.accent, fontWeight:700, fontSize:14, cursor:"pointer" }}>Nullstill</button>
       </div>
-      <div style={{ marginBottom:20 }}>
-        <div style={labelStyle}>Kategori</div>
-        <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
-          {["", ...CATEGORIES].map(c => (
-            <button key={c||"__all__"} onClick={() => setFilterCat(c)}
-              style={{ padding:"7px 13px", borderRadius:20, border:`1.5px solid ${filterCat===c?C.primary:C.border}`, background:filterCat===c?C.primary:"#fff", color:filterCat===c?"#fff":C.textMid, fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
-              {c || "Alle"}
-            </button>
-          ))}
+
+      {/* Status */}
+      <div style={{ marginBottom:18 }}>
+        <div style={labelStyle}>Status</div>
+        <div style={{ display:"flex", gap:7 }}>
+          {[["aktiv","✅ Aktiv"],["utgått","⚠ Utgått"],["","Alle"]].map(([v,lbl]) =>
+            chip(v, filters.status, () => setFilters(f => ({ ...f, status:v })))
+          )}
         </div>
       </div>
+
+      {/* Kategori */}
+      <div style={{ marginBottom:18 }}>
+        <div style={labelStyle}>Kategori</div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {["", ...CATEGORIES].map(c => chip(c, filters.cat, () => setFilters(f => ({ ...f, cat:c }))))}
+        </div>
+      </div>
+
+      {/* Land */}
+      <div style={{ marginBottom:18 }}>
+        <div style={labelStyle}>Land</div>
+        <input value={filters.country} onChange={e => setFilters(f => ({ ...f, country:e.target.value }))}
+          placeholder="Skriv land... (f.eks. Italia)"
+          style={{ ...inputStyle, fontSize:13, padding:"9px 12px" }} />
+      </div>
+
+      {/* Region */}
+      <div style={{ marginBottom:18 }}>
+        <div style={labelStyle}>Region/distrikt</div>
+        <input value={filters.region} onChange={e => setFilters(f => ({ ...f, region:e.target.value }))}
+          placeholder="Skriv region... (f.eks. Barolo)"
+          style={{ ...inputStyle, fontSize:13, padding:"9px 12px" }} />
+      </div>
+
+      {/* Pris */}
+      <div style={{ marginBottom:20 }}>
+        <div style={labelStyle}>Pris</div>
+        <PriceSlider min={0} max={5000} value={filters.price}
+          onChange={v => setFilters(f => ({ ...f, price:v }))} />
+      </div>
+
       <button onClick={onClose} style={{ width:"100%", background:C.primary, color:"#fff", border:"none", borderRadius:12, padding:"13px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Vis resultater</button>
     </>
   );
@@ -648,7 +728,7 @@ export default function VinApp() {
   // ── Søke-tilstand ──
   const [tab, setTab]             = useState("database");
   const [search, setSearch]       = useState("");
-  const [filterCat, setFilterCat] = useState("");
+  const [filters, setFilters] = useState({ cat:"", country:"", region:"", price:[0,5000], status:"aktiv" });
   const [filterOpen, setFilterOpen] = useState(false);
   const [wines, setWines]         = useState([]);
   const [loading, setLoading]     = useState(false);
@@ -681,10 +761,12 @@ export default function VinApp() {
   }, [tastings, cellar, user, dataLoaded]);
 
   // Søk mot Vinmonopolet
-  const doSearch = useCallback(async (q, cat, pg) => {
+  const doSearch = useCallback(async (q, f, pg) => {
     setLoading(true);
     try {
-      const result = await VMP.search({ query: q, category: cat, currentPage: pg });
+      const p = new URLSearchParams({ search: q, category: f.cat||"", country: f.country||"", region: f.region||"", status: f.status||"", priceMin: f.price?.[0]||0, priceMax: f.price?.[1]||5000 });
+      const res = await fetch(`/api/wines?${p}`);
+      const result = await res.json();
       setWines(result.wines || []);
       setTotalPages(0);
       setTotalWines(result.total || 0);
@@ -699,20 +781,20 @@ export default function VinApp() {
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => {
       setPage(0);
-      doSearch(search, filterCat, 0);
+      doSearch(search, filters, 0);
     }, 400);
     return () => clearTimeout(searchTimer.current);
-  }, [search, filterCat, tab, doSearch]);
+  }, [search, filters, tab, doSearch]);
 
   const handlePageChange = (newPage) => {
     setPage(newPage);
-    doSearch(search, filterCat, newPage);
+    doSearch(search, filters, newPage);
     window.scrollTo(0, 0);
   };
 
   const handleTabSwitch = (t) => {
     setTab(t);
-    if (t === "database") doSearch(search, filterCat, page);
+    if (t === "database") doSearch(search, filters, page);
     if (t === "tastings" || t === "cellar") {
       API.getData(user).then(data => {
         setTastings(data.tastings || []);
@@ -746,7 +828,7 @@ export default function VinApp() {
 
   const totalCellar = cellar.reduce((s,e) => s+e.qty, 0);
   const avgScore    = tastings.length ? (tastings.reduce((s,t) => s+(t.myScore||0), 0) / tastings.length).toFixed(1) : "–";
-  const hasFilter   = !!filterCat;
+  const hasFilter = !!(filters.cat || filters.country || filters.region || filters.price[0] > 0 || filters.price[1] < 5000 || filters.status !== "aktiv");
 
   const TABS = [
     { id:"database", Icon:IcoWine,   label:"Viner",   badge:null },
@@ -766,12 +848,12 @@ export default function VinApp() {
   const dbTab = (
     <div style={isDesktop ? { display:"grid", gridTemplateColumns:"220px 1fr", gap:24 } : {}}>
       {isDesktop && (
-        <FilterPanel isMobile={false} open filterCat={filterCat} setFilterCat={v => { setFilterCat(v); setPage(0); }} onClose={() => {}} />
+        <FilterPanel isMobile={false} open filters={filters} setFilters={v => { setFilters(v); setPage(0); }} onClose={() => {}} />
       )}
       <div>
         <div style={{ fontSize:12, color:C.textSoft, marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span>{loading ? "Søker på Vinmonopolet..." : totalWines > 0 ? `${totalWines.toLocaleString("nb-NO")} viner fra Vinmonopolet` : wines.length === 0 && !search && !filterCat ? "Søk for å utforske sortimentet" : "Ingen treff"}</span>
-          {hasFilter && <button onClick={() => setFilterCat("")} style={{ background:"none", border:"none", color:C.accent, cursor:"pointer", fontSize:12, fontWeight:700 }}>Nullstill ×</button>}
+          <span>{loading ? "Søker på Vinmonopolet..." : totalWines > 0 ? `${totalWines.toLocaleString("nb-NO")} viner fra Vinmonopolet` : wines.length === 0 && !search && !hasFilter ? "Søk for å utforske sortimentet" : "Ingen treff"}</span>
+          {hasFilter && <button onClick={() => setFilters({ cat:"", country:"", region:"", price:[0,5000], status:"aktiv" })} style={{ background:"none", border:"none", color:C.accent, cursor:"pointer", fontSize:12, fontWeight:700 }}>Nullstill ×</button>}
         </div>
 
         {loading && (
@@ -781,7 +863,7 @@ export default function VinApp() {
           </div>
         )}
 
-        {!loading && wines.length === 0 && !search && !filterCat && (
+        {!loading && wines.length === 0 && !search && !hasFilter && (
           <div style={{ textAlign:"center", padding:"80px 20px" }}>
             <div style={{ fontSize:52, marginBottom:14 }}>🍷</div>
             <div style={{ fontSize:18, fontWeight:700, color:C.text, marginBottom:8 }}>Søk i Vinmonopolets sortiment</div>
@@ -797,7 +879,7 @@ export default function VinApp() {
           </div>
         )}
 
-        {!loading && wines.length === 0 && (search || filterCat) && (
+        {!loading && wines.length === 0 && (search || hasFilter) && (
           <div style={{ textAlign:"center", padding:"60px 20px", color:C.textSoft }}>
             <div style={{ fontSize:36, marginBottom:10 }}>🔍</div>
             <div style={{ fontSize:15, fontWeight:600 }}>Ingen viner funnet</div>
@@ -875,11 +957,13 @@ export default function VinApp() {
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
           {cellar.map(entry => (
             <div key={entry.id} style={{ background:C.bgCard, borderRadius:14, border:`1px solid ${C.border}`, padding:"12px 14px", display:"flex", alignItems:"center", gap:10 }}>
-              <WineBottleImg wine={entry.wine} size={36} />
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{entry.wine.name}</div>
-                <div style={{ fontSize:11, color:C.textSoft }}>{entry.wine.country}{entry.wine.year ? ` · ${entry.wine.year}` : ""}</div>
-                {entry.wine.price && <div style={{ fontSize:13, fontWeight:700, color:C.primary }}>{entry.wine.price.toLocaleString("nb-NO")} kr</div>}
+              <div onClick={() => setSelectedWine(entry.wine)} style={{ display:"flex", gap:10, alignItems:"center", flex:1, minWidth:0, cursor:"pointer" }}>
+                <WineBottleImg wine={entry.wine} size={36} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{entry.wine.name}</div>
+                  <div style={{ fontSize:11, color:C.textSoft }}>{entry.wine.country}{entry.wine.year ? ` · ${entry.wine.year}` : ""}</div>
+                  {entry.wine.price && <div style={{ fontSize:13, fontWeight:700, color:C.primary }}>{entry.wine.price.toLocaleString("nb-NO")} kr</div>}
+                </div>
               </div>
               <div style={{ display:"flex", alignItems:"center" }}>
                 <button onClick={() => adjustCellar(entry.id,-1)} style={{ width:36, height:36, background:C.bg, border:`1.5px solid ${C.border}`, borderRadius:"8px 0 0 8px", cursor:"pointer", fontSize:19, color:C.text, display:"flex", alignItems:"center", justifyContent:"center" }}>−</button>
@@ -926,9 +1010,9 @@ export default function VinApp() {
             <tbody>
               {cellar.map((entry,i) => (
                 <tr key={entry.id} style={{ borderBottom:`1px solid ${C.borderLight}`, background:i%2===0?"#fff":C.bg }}>
-                  <td style={{ padding:"10px 8px 10px 14px" }}><WineBottleImg wine={entry.wine} size={28} /></td>
-                  <td style={{ padding:"12px 14px" }}>
-                    <div style={{ fontWeight:700, color:C.text, fontSize:14 }}>{entry.wine.name}</div>
+                  <td style={{ padding:"10px 8px 10px 14px", cursor:"pointer" }} onClick={() => setSelectedWine(entry.wine)}><WineBottleImg wine={entry.wine} size={28} /></td>
+                  <td style={{ padding:"12px 14px", cursor:"pointer" }} onClick={() => setSelectedWine(entry.wine)}>
+                    <div style={{ fontWeight:700, color:C.primary, fontSize:14, textDecoration:"underline", textDecorationStyle:"dotted" }}>{entry.wine.name}</div>
                     {entry.wine.year && <div style={{ fontSize:11, color:C.textSoft }}>{entry.wine.year}</div>}
                   </td>
                   <td style={{ padding:"12px 14px", fontSize:12, color:C.textMid }}>{entry.wine.mainCategory || "—"}</td>
@@ -1061,7 +1145,7 @@ export default function VinApp() {
       )}
       {!isDesktop && (
         <FilterPanel isMobile open={filterOpen} onClose={() => setFilterOpen(false)}
-          filterCat={filterCat} setFilterCat={v => { setFilterCat(v); setPage(0); }} />
+          filters={filters} setFilters={v => { setFilters(v); setPage(0); }} />
       )}
     </div>
   );

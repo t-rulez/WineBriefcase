@@ -2,21 +2,21 @@ import { neon } from "@neondatabase/serverless";
 
 function mapWine(w) {
   return {
-    id:           w.id,
-    product_id:   w.product_id,
-    name:         w.name,
-    producer:     w.producer,
-    country:      w.country,
-    region:       w.region,
-    subRegion:    w.sub_region,
-    year:         w.year,
-    type:         w.type,
-    mainCategory: w.type,
-    grapes:       w.grapes,
-    alcohol:      w.alcohol,
-    volume:       w.volume,
-    price:        w.price,
-    color:        w.color,
+    id:             w.id,
+    product_id:     w.product_id,
+    name:           w.name,
+    producer:       w.producer,
+    country:        w.country,
+    region:         w.region,
+    subRegion:      w.sub_region,
+    year:           w.year,
+    type:           w.type,
+    mainCategory:   w.type,
+    grapes:         w.grapes,
+    alcohol:        w.alcohol,
+    volume:         w.volume,
+    price:          w.price,
+    color:          w.color,
     flavor_profile: w.flavor_profile,
     taste: {
       fullness:   w.taste_fullness,
@@ -27,10 +27,10 @@ function mapWine(w) {
     },
     aromaCategories: typeof w.aromas === "string" ? JSON.parse(w.aromas) : (w.aromas || []),
     description_no:  w.description_no,
-    imageUrl:      `https://bilder.vinmonopolet.no/cache/300x300-0/${w.product_id}-1.jpg`,
-    imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${w.product_id}-1.jpg`,
-    url:           `https://www.vinmonopolet.no/p/${w.product_id}`,
-    status:        w.status || "aktiv",
+    status:          w.status || "aktiv",
+    imageUrl:        `https://bilder.vinmonopolet.no/cache/300x300-0/${w.product_id}-1.jpg`,
+    imageUrlLarge:   `https://bilder.vinmonopolet.no/cache/515x515-0/${w.product_id}-1.jpg`,
+    url:             `https://www.vinmonopolet.no/p/${w.product_id}`,
   };
 }
 
@@ -39,33 +39,57 @@ export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
 
   const sql = neon(process.env.DATABASE_URL);
-  const { search = "", category = "", country = "" } = req.query;
+  const {
+    search   = "",
+    category = "",
+    country  = "",
+    region   = "",
+    status   = "aktiv",
+    priceMin = "0",
+    priceMax = "5000",
+  } = req.query;
+
+  const pMin = parseInt(priceMin) || 0;
+  const pMax = parseInt(priceMax) || 5000;
+  const isPriceFiltered = pMin > 0 || pMax < 5000;
 
   try {
-    let rows;
-    const q = `%${search}%`;
-    const cat = `%${category}%`;
-    const ctr = `%${country}%`;
+    // Build dynamic WHERE conditions
+    const conditions = [];
+    const params = [];
+    let idx = 1;
 
-    if (search && category && country) {
-      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q}) AND type ILIKE ${cat} AND country ILIKE ${ctr} ORDER BY name LIMIT 100`;
-    } else if (search && category) {
-      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q}) AND type ILIKE ${cat} ORDER BY name LIMIT 100`;
-    } else if (search && country) {
-      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q}) AND country ILIKE ${ctr} ORDER BY name LIMIT 100`;
-    } else if (category && country) {
-      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cat} AND country ILIKE ${ctr} ORDER BY name LIMIT 100`;
-    } else if (search) {
-      rows = await sql`SELECT * FROM vb_wines WHERE name ILIKE ${q} OR producer ILIKE ${q} OR grapes ILIKE ${q} OR region ILIKE ${q} OR country ILIKE ${q} OR type ILIKE ${q} ORDER BY name LIMIT 100`;
-    } else if (category) {
-      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cat} ORDER BY name LIMIT 100`;
-    } else if (country) {
-      rows = await sql`SELECT * FROM vb_wines WHERE country ILIKE ${ctr} ORDER BY name LIMIT 100`;
-    } else {
-      rows = await sql`SELECT * FROM vb_wines ORDER BY name LIMIT 100`;
+    if (search) {
+      const q = `%${search}%`;
+      conditions.push(`(name ILIKE $${idx} OR producer ILIKE $${idx} OR grapes ILIKE $${idx} OR region ILIKE $${idx} OR country ILIKE $${idx} OR type ILIKE $${idx})`);
+      params.push(q); idx++;
+    }
+    if (category) {
+      conditions.push(`type ILIKE $${idx}`);
+      params.push(`%${category}%`); idx++;
+    }
+    if (country) {
+      conditions.push(`country ILIKE $${idx}`);
+      params.push(`%${country}%`); idx++;
+    }
+    if (region) {
+      conditions.push(`(region ILIKE $${idx} OR sub_region ILIKE $${idx})`);
+      params.push(`%${region}%`); idx++;
+    }
+    if (status) {
+      conditions.push(`status ILIKE $${idx}`);
+      params.push(`%${status}%`); idx++;
+    }
+    if (isPriceFiltered) {
+      conditions.push(`price >= $${idx} AND price <= $${idx+1}`);
+      params.push(pMin, pMax); idx += 2;
     }
 
-    return res.status(200).json({ wines: rows.map(mapWine), total: rows.length });
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const queryStr = `SELECT * FROM vb_wines ${where} ORDER BY name LIMIT 200`;
+
+    const rows = await sql.query(queryStr, params);
+    return res.status(200).json({ wines: rows.rows.map(mapWine), total: rows.rows.length });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
