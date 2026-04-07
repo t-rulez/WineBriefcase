@@ -217,7 +217,8 @@ export default async function handler(req, res) {
       taste_tannins INTEGER,
       taste_bitterness INTEGER,
       aromas TEXT DEFAULT '[]',
-      description_no TEXT DEFAULT ''
+      description_no TEXT DEFAULT '',
+      status TEXT DEFAULT 'aktiv'
     )
   `;
 

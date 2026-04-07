@@ -30,8 +30,7 @@ function mapWine(w) {
     imageUrl:      `https://bilder.vinmonopolet.no/cache/300x300-0/${w.product_id}-1.jpg`,
     imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${w.product_id}-1.jpg`,
     url:           `https://www.vinmonopolet.no/p/${w.product_id}`,
-    isEco:         w.is_eco  || false,
-    isVegan:       w.is_vegan || false,
+    status:        w.status || "aktiv",
   };
 }
 

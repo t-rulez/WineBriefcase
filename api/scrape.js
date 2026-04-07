@@ -67,6 +67,7 @@ function parseProduct(p) {
     type:           p.main_category?.name || "",
     year:           p.year ? parseInt(p.year) : null,
     flavor_profile: p.content?.style?.name || "",
+    status:         p.status || "aktiv",
   };
 }
 
@@ -121,7 +122,7 @@ export default async function handler(req, res) {
           product_id, name, producer, country, region, sub_region,
           year, type, grapes, alcohol, volume, price, color,
           flavor_profile, taste_fullness, taste_sweetness, taste_freshness,
-          taste_tannins, taste_bitterness, aromas, description_no
+          taste_tannins, taste_bitterness, aromas, description_no, status
         ) VALUES (
           ${w.product_id}, ${w.name}, ${d.producer}, ${d.country},
           ${d.region}, ${d.sub_region}, ${d.year},
@@ -129,7 +130,7 @@ export default async function handler(req, res) {
           ${d.volume}, ${d.price}, ${d.color},
           ${d.flavor_profile}, ${d.taste_fullness}, ${d.taste_sweetness},
           ${d.taste_freshness}, ${d.taste_tannins}, ${null},
-          ${JSON.stringify(d.aromas)}, ${d.description_no}
+          ${JSON.stringify(d.aromas)}, ${d.description_no}, ${d.status}
         )
         ON CONFLICT (product_id) DO UPDATE SET
           name            = EXCLUDED.name,
@@ -150,7 +151,8 @@ export default async function handler(req, res) {
           taste_freshness = EXCLUDED.taste_freshness,
           taste_tannins   = EXCLUDED.taste_tannins,
           aromas          = EXCLUDED.aromas,
-          description_no  = EXCLUDED.description_no
+          description_no  = EXCLUDED.description_no,
+          status          = EXCLUDED.status
       `;
       inserted++;
     } catch { failed++; }
