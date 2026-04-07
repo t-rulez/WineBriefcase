@@ -58,28 +58,18 @@ const SEARCHES = [
 
 async function getVmpProducts(apiKey, searchTerm) {
   const headers = { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" };
-  const term = searchTerm.substring(0, 50);
-  let all = [];
-
-  // Fetch up to 3 pages of 50 = 150 products per search term
-  for (let start = 0; start < 150; start += 50) {
-    const params = new URLSearchParams({
-      maxResults: "50",
-      start: String(start),
-      productShortNameContains: term,
-    });
-    const res = await fetch(
-      `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
-      { headers }
-    );
-    if (!res.ok) break;
-    const data = await res.json();
-    if (!Array.isArray(data) || data.length === 0) break;
-    all = all.concat(data);
-    if (data.length < 50) break; // no more pages
-    await new Promise(r => setTimeout(r, 300)); // rate limit
-  }
-  return all;
+  const params = new URLSearchParams({
+    maxResults: "20",
+    start: "0",
+    productShortNameContains: searchTerm.substring(0, 50),
+  });
+  const res = await fetch(
+    `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
+    { headers }
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
 }
 
 async function enrichWithClaude(claudeKey, wines) {
@@ -246,13 +236,13 @@ export default async function handler(req, res) {
 
     // Chunk into batches of 20 for Claude
     let enriched = [];
-    const CHUNK = 20;
+    const CHUNK = 10;
     for (let i = 0; i < wineInputs.length; i += CHUNK) {
       const chunk = wineInputs.slice(i, i + CHUNK);
       try {
         const result = await enrichWithClaude(claudeKey, chunk);
         enriched = enriched.concat(result);
-        await new Promise(r => setTimeout(r, 500));
+        
       } catch(e) {
         details.push({ term, chunkError: e.message });
       }
@@ -301,7 +291,7 @@ export default async function handler(req, res) {
       VALUES (${batchIndex}, ${term}, ${vmpProducts.length}, ${inserted}, ${skipped})
     `;
 
-    await new Promise(r => setTimeout(r, 300));
+    
   }
 
   const count = await sql`SELECT COUNT(*) as c FROM vb_wines`;
