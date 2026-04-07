@@ -455,8 +455,14 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
   useEffect(() => () => stopCamera(), []);
 
   const stopCamera = () => {
-    readerRef.current = null;
-    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    if (readerRef.current) {
+      try { readerRef.current.reset(); } catch {}
+      readerRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
     if (videoRef.current) { videoRef.current.srcObject = null; }
     setBarcodeActive(false);
   };
@@ -469,42 +475,26 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
       const reader = new BrowserMultiFormatReader();
       readerRef.current = reader;
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setBarcodeActive(true);
-
-      // Poll frames manuelt siden decodeFromStream kan være ustabil
-      const canvas  = document.createElement("canvas");
-      const ctx     = canvas.getContext("2d");
-      let stopped   = false;
-
-      const poll = async () => {
-        if (stopped || !videoRef.current || !readerRef.current) return;
-        const v = videoRef.current;
-        if (v.readyState >= 2 && v.videoWidth > 0) {
-          canvas.width  = v.videoWidth;
-          canvas.height = v.videoHeight;
-          ctx.drawImage(v, 0, 0);
-          try {
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const result  = await readerRef.current.decodeFromImageData(imgData);
-            if (result) {
-              stopped = true;
-              stopCamera();
-              await lookupBarcode(result.getText());
-              return;
+      // decodeFromVideoDevice starter kamera og leser kontinuerlig
+      // deviceId=undefined → bruker standard/bakre kamera
+      await reader.decodeFromVideoDevice(
+        undefined,
+        videoRef.current,
+        async (result, err, controls) => {
+          if (result) {
+            controls.stop();
+            readerRef.current = null;
+            if (streamRef.current) {
+              streamRef.current.getTracks().forEach(t => t.stop());
+              streamRef.current = null;
             }
-          } catch { /* ingen kode i dette bildet, fortsett */ }
+            setBarcodeActive(false);
+            await lookupBarcode(result.getText());
+          }
+          // err er satt på hvert frame uten kode — ikke en ekte feil
         }
-        setTimeout(poll, 300);
-      };
-      poll();
+      );
+      setBarcodeActive(true);
 
     } catch(e) {
       setError("Feil: " + e.message + ". Prøv etikett-skanning i stedet.");
