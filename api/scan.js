@@ -101,35 +101,35 @@ export default async function handler(req, res) {
 
     if (wineInfo.producer) {
       const q = `%${wineInfo.producer.substring(0, 40)}%`;
-      addRows(await sql`SELECT * FROM vb_wines WHERE producer ILIKE ${q} ORDER BY rating DESC LIMIT 6`);
+      addRows(await sql`SELECT * FROM vb_wines WHERE producer ILIKE ${q} ORDER BY name LIMIT 6`);
     }
     if (wineInfo.name && wines.length < 5) {
       const q = `%${wineInfo.name.substring(0, 40)}%`;
-      addRows(await sql`SELECT * FROM vb_wines WHERE name ILIKE ${q} ORDER BY rating DESC LIMIT 5`);
+      addRows(await sql`SELECT * FROM vb_wines WHERE name ILIKE ${q} ORDER BY name LIMIT 5`);
     }
     if (wineInfo.region && wines.length < 3) {
       const q = `%${wineInfo.region.substring(0, 30)}%`;
-      addRows(await sql`SELECT * FROM vb_wines WHERE region ILIKE ${q} OR sub_region ILIKE ${q} ORDER BY rating DESC LIMIT 4`);
+      addRows(await sql`SELECT * FROM vb_wines WHERE region ILIKE ${q} OR sub_region ILIKE ${q} ORDER BY name LIMIT 4`);
     }
     if (wines.length === 0 && wineInfo.country) {
       const q = `%${wineInfo.country}%`;
-      addRows(await sql`SELECT * FROM vb_wines WHERE country ILIKE ${q} ORDER BY rating DESC LIMIT 5`);
+      addRows(await sql`SELECT * FROM vb_wines WHERE country ILIKE ${q} ORDER BY name LIMIT 5`);
     }
 
     const mapped = wines.slice(0, 6).map(w => ({
       id: w.id, product_id: w.product_id, name: w.name, producer: w.producer,
       country: w.country, region: w.region, subRegion: w.sub_region,
       year: w.year, type: w.type, mainCategory: w.type, grapes: w.grapes,
-      alcohol: w.alcohol, volume: w.volume, price: w.price, rating: w.rating,
+      alcohol: w.alcohol, volume: w.volume, price: w.price,
       color: w.color, flavor_profile: w.flavor_profile,
+      status: w.status || "aktiv",
       taste: { fullness: w.taste_fullness, sweetness: w.taste_sweetness,
                freshness: w.taste_freshness, tannins: w.taste_tannins, bitterness: w.taste_bitterness },
       aromaCategories: typeof w.aromas === "string" ? JSON.parse(w.aromas) : (w.aromas || []),
-      description_no: w.description_no, description_en: w.description_en,
+      description_no: w.description_no,
       imageUrl: `https://bilder.vinmonopolet.no/cache/300x300-0/${w.product_id}-1.jpg`,
       imageUrlLarge: `https://bilder.vinmonopolet.no/cache/515x515-0/${w.product_id}-1.jpg`,
       url: `https://www.vinmonopolet.no/p/${w.product_id}`,
-      isEco: w.is_eco || false, isVegan: w.is_vegan || false,
     }));
 
     return res.status(200).json({ identified: mapped.length > 0, wineInfo, wines: mapped, sizeKB });
