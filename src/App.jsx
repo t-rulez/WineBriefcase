@@ -506,18 +506,16 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
           <p style={{ fontSize:14, color:C.textMid, lineHeight:1.6, marginBottom:16 }}>
             Ta bilde av etiketten. Claude AI identifiserer vinen og søker direkte på Vinmonopolet.
           </p>
-          {/* library: no capture → opens photo library directly on mobile */}
           <input ref={fileRef} type="file" accept="image/*" onChange={e => handleImage(e.target.files?.[0])} style={{ display:"none" }} />
-          {/* camera: capture=environment → opens camera directly */}
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={e => handleImage(e.target.files?.[0])} style={{ display:"none" }} />
           <div style={{ display:"flex", gap:10 }}>
             <button onClick={() => { fileRef.current.value = ""; fileRef.current.click(); }}
               style={{ flex:1, background:C.bg, color:C.text, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"14px", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-              📁 Velg fra bibliotek
+              📁 Velg bilde
             </button>
             <button onClick={() => { cameraRef.current.value = ""; cameraRef.current.click(); }}
               style={{ flex:1, background:C.primary, color:"#fff", border:"none", borderRadius:12, padding:"14px", fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-              <IcoCamera s={16} /> Ta bilde
+              <IcoCamera s={16} /> Kamera
             </button>
           </div>
         </div>
