@@ -590,21 +590,60 @@ const CATEGORIES = ["Rødvin","Hvitvin","Rosévin","Musserende vin"];
 function PriceSlider({ min, max, value, onChange }) {
   const [localMin, setLocalMin] = useState(value[0]);
   const [localMax, setLocalMax] = useState(value[1]);
+  const trackRef = useRef(null);
 
   useEffect(() => { setLocalMin(value[0]); setLocalMax(value[1]); }, [value[0], value[1]]);
 
   const pctMin = ((localMin - min) / (max - min)) * 100;
   const pctMax = ((localMax - min) / (max - min)) * 100;
 
-  const handleMinChange = (e) => {
-    const v = Math.min(Number(e.target.value), localMax - 50);
-    setLocalMin(v);
-    onChange([v, localMax]);
+  const getValueFromEvent = (e) => {
+    const rect = trackRef.current.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const raw = min + pct * (max - min);
+    return Math.round(raw / 50) * 50;
   };
-  const handleMaxChange = (e) => {
-    const v = Math.max(Number(e.target.value), localMin + 50);
-    setLocalMax(v);
-    onChange([localMin, v]);
+
+  const handleTrackInteraction = (e) => {
+    const v = getValueFromEvent(e);
+    const distToMin = Math.abs(v - localMin);
+    const distToMax = Math.abs(v - localMax);
+    if (distToMin <= distToMax) {
+      const newMin = Math.min(v, localMax - 50);
+      setLocalMin(newMin);
+      onChange([newMin, localMax]);
+    } else {
+      const newMax = Math.max(v, localMin + 50);
+      setLocalMax(newMax);
+      onChange([localMin, newMax]);
+    }
+  };
+
+  const startDrag = (thumb, e) => {
+    e.preventDefault();
+    const move = (ev) => {
+      const v = getValueFromEvent(ev);
+      if (thumb === "min") {
+        const newMin = Math.max(min, Math.min(v, localMax - 50));
+        setLocalMin(newMin);
+        onChange([newMin, localMax]);
+      } else {
+        const newMax = Math.min(max, Math.max(v, localMin + 50));
+        setLocalMax(newMax);
+        onChange([localMin, newMax]);
+      }
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", move, { passive: false });
+    window.addEventListener("touchend", up);
   };
 
   return (
@@ -613,25 +652,20 @@ function PriceSlider({ min, max, value, onChange }) {
         <span style={{ fontSize:13, fontWeight:700, color:C.primary }}>{localMin.toLocaleString("nb-NO")} kr</span>
         <span style={{ fontSize:13, fontWeight:700, color:C.primary }}>{localMax.toLocaleString("nb-NO")} kr</span>
       </div>
-      <div style={{ position:"relative", height:28, marginBottom:4 }}>
+      <div ref={trackRef} onClick={handleTrackInteraction}
+        style={{ position:"relative", height:28, cursor:"pointer", marginBottom:4 }}>
         {/* Track */}
-        <div style={{ position:"absolute", top:"50%", left:0, right:0, height:5, background:C.borderLight, borderRadius:3, transform:"translateY(-50%)", pointerEvents:"none" }} />
+        <div style={{ position:"absolute", top:"50%", left:0, right:0, height:5, background:C.borderLight, borderRadius:3, transform:"translateY(-50%)" }} />
         {/* Active range */}
-        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, right:`${100-pctMax}%`, height:5, background:C.primary, borderRadius:3, transform:"translateY(-50%)", pointerEvents:"none" }} />
-        {/* Min input — clipped to left portion so it doesn't overlap max thumb area */}
-        <input type="range" min={min} max={max} step={50} value={localMin}
-          onChange={handleMinChange}
-          style={{ position:"absolute", width:`${pctMax + 10}%`, height:"100%", opacity:0, cursor:"pointer", margin:0, zIndex:4, left:0 }} />
-        {/* Max input — clipped to right portion */}
-        <input type="range" min={min} max={max} step={50} value={localMax}
-          onChange={handleMaxChange}
-          style={{ position:"absolute", width:`${100 - pctMin + 10}%`, height:"100%", opacity:0, cursor:"pointer", margin:0, zIndex:4, right:0 }} />
-        {/* Visual min thumb */}
-        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, width:20, height:20, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 6px rgba(92,26,26,0.35)", pointerEvents:"none", zIndex:5 }} />
-        {/* Visual max thumb */}
-        <div style={{ position:"absolute", top:"50%", left:`${pctMax}%`, width:20, height:20, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 6px rgba(92,26,26,0.35)", pointerEvents:"none", zIndex:5 }} />
+        <div style={{ position:"absolute", top:"50%", left:`${pctMin}%`, right:`${100-pctMax}%`, height:5, background:C.primary, borderRadius:3, transform:"translateY(-50%)" }} />
+        {/* Min thumb */}
+        <div onMouseDown={e => startDrag("min", e)} onTouchStart={e => startDrag("min", e)}
+          style={{ position:"absolute", top:"50%", left:`${pctMin}%`, width:22, height:22, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 8px rgba(92,26,26,0.4)", cursor:"grab", zIndex:5, touchAction:"none" }} />
+        {/* Max thumb */}
+        <div onMouseDown={e => startDrag("max", e)} onTouchStart={e => startDrag("max", e)}
+          style={{ position:"absolute", top:"50%", left:`${pctMax}%`, width:22, height:22, background:C.primary, borderRadius:"50%", transform:"translate(-50%,-50%)", border:"3px solid #fff", boxShadow:"0 2px 8px rgba(92,26,26,0.4)", cursor:"grab", zIndex:5, touchAction:"none" }} />
       </div>
-      <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
         {[0,1000,2000,3000,4000,5000].map(v => (
           <span key={v} style={{ fontSize:10, color:C.textSoft }}>{v === 0 ? "0" : `${v/1000}k`}</span>
         ))}
