@@ -153,18 +153,30 @@ function parseProduct(p) {
 }
 
 async function getVmpProducts(apiKey, searchTerm) {
-  const params = new URLSearchParams({
-    maxResults: "20",
-    start: "0",
-    productShortNameContains: searchTerm.substring(0, 50),
-  });
-  const res = await fetch(
-    `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
-    { headers: { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" } }
-  );
-  if (!res.ok) return [];
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  const headers = { "Ocp-Apim-Subscription-Key": apiKey, "Accept": "application/json" };
+  const term = searchTerm.substring(0, 50);
+  const PAGE = 50;
+  let all = [];
+  let start = 0;
+
+  while (true) {
+    const params = new URLSearchParams({
+      maxResults: String(PAGE),
+      start: String(start),
+      productShortNameContains: term,
+    });
+    const res = await fetch(
+      `https://apis.vinmonopolet.no/products/v0/details-normal?${params}`,
+      { headers }
+    );
+    if (!res.ok) break;
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < PAGE) break; // siste side
+    start += PAGE;
+  }
+  return all;
 }
 
 export default async function handler(req, res) {
@@ -220,6 +232,16 @@ export default async function handler(req, res) {
     )
   `;
 
+  // Kø-tabell: alle varenumre som skal scrapes
+  await sql`
+    CREATE TABLE IF NOT EXISTS vb_queue (
+      product_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      scraped BOOLEAN DEFAULT false,
+      queued_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
+
   // Sjekk om allerede gjort
   const done = await sql`SELECT COUNT(*) as c FROM vb_build_log WHERE batch_index = ${batchIndex}`;
   if (Number(done[0].c) > 0) {
@@ -251,67 +273,19 @@ export default async function handler(req, res) {
       .map(p => ({ id: p.basic?.productId, name: p.basic?.productShortName }))
       .filter(w => w.id && w.name);
 
-    // Steg 2: Scrape produktsider parallelt (maks 5 om gangen)
-    const scraped = [];
-    const PARALLEL = 5;
-    for (let i = 0; i < wineIds.length; i += PARALLEL) {
-      const batch = wineIds.slice(i, i + PARALLEL);
-      const results = await Promise.all(
-        batch.map(async w => {
-          const product = await scrapeVmpProduct(w.id);
-          const parsed  = parseProduct(product);
-          return { ...w, parsed };
-        })
-      );
-      scraped.push(...results);
-    }
-
-    // Steg 3: Lagre i databasen
-    for (const w of scraped) {
-      if (!w.parsed) continue;
-      const d = w.parsed;
+    // Steg 2: Lagre alle IDs i kø-tabell
+    for (const w of wineIds) {
       try {
         await sql`
-          INSERT INTO vb_wines (
-            product_id, name, producer, country, region, sub_region,
-            year, type, grapes, alcohol, volume, price, color,
-            flavor_profile, taste_fullness, taste_sweetness, taste_freshness,
-            taste_tannins, taste_bitterness, aromas, description_no
-          ) VALUES (
-            ${w.id}, ${w.name}, ${d.producer}, ${d.country},
-            ${d.region}, ${d.sub_region}, ${d.year},
-            ${d.type}, ${d.grapes}, ${d.alcohol},
-            ${d.volume}, ${d.price}, ${d.color},
-            ${d.flavor_profile}, ${d.taste_fullness}, ${d.taste_sweetness},
-            ${d.taste_freshness}, ${d.taste_tannins}, ${null},
-            ${JSON.stringify(d.aromas)}, ${d.description_no}
-          )
-          ON CONFLICT (product_id) DO UPDATE SET
-            name           = EXCLUDED.name,
-            producer       = EXCLUDED.producer,
-            country        = EXCLUDED.country,
-            region         = EXCLUDED.region,
-            sub_region     = EXCLUDED.sub_region,
-            year           = EXCLUDED.year,
-            type           = EXCLUDED.type,
-            grapes         = EXCLUDED.grapes,
-            alcohol        = EXCLUDED.alcohol,
-            volume         = EXCLUDED.volume,
-            price          = EXCLUDED.price,
-            color          = EXCLUDED.color,
-            flavor_profile = EXCLUDED.flavor_profile,
-            taste_fullness = EXCLUDED.taste_fullness,
-            taste_sweetness= EXCLUDED.taste_sweetness,
-            taste_freshness= EXCLUDED.taste_freshness,
-            taste_tannins  = EXCLUDED.taste_tannins,
-            aromas         = EXCLUDED.aromas,
-            description_no = EXCLUDED.description_no
+          INSERT INTO vb_queue (product_id, name)
+          VALUES (${w.id}, ${w.name})
+          ON CONFLICT (product_id) DO NOTHING
         `;
-        inserted++;
-      } catch { /* skip duplicates */ }
+      } catch {}
     }
 
-    details.push({ term, found: wineIds.length, scraped: scraped.filter(s => s.parsed).length, inserted });
+    details.push({ term, found: wineIds.length, queued: wineIds.length });
+    inserted = wineIds.length;
 
     // Commit checkpoint
     await sql`
