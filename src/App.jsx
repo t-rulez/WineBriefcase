@@ -585,7 +585,7 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
 }
 
 // ─── FILTER PANEL ─────────────────────────────────────────────────────────────
-const CATEGORIES = ["Rødvin","Hvitvin","Rosévin","Musserende vin","Champagne","Sterkvin","Dessertvin","Øl","Brennevin"];
+const CATEGORIES = ["Rødvin","Hvitvin","Rosévin","Musserende vin"];
 
 function PriceSlider({ min, max, value, onChange }) {
   const [localMin, setLocalMin] = useState(value[0]);
@@ -662,19 +662,6 @@ function FilterPanel({ isMobile, open, onClose, filters, setFilters }) {
         <button onClick={reset} style={{ background:"none", border:"none", color:C.accent, fontWeight:700, fontSize:14, cursor:"pointer" }}>Nullstill</button>
       </div>
 
-      {/* Status */}
-      <div>
-        <div style={labelStyle}>Status</div>
-        <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
-          {[["aktiv","✅ Aktiv"],["utgatt","⚠ Utgått"],["utsolgt","📦 Utsolgt"],["langtidsutsolgt","📦 Langtidsutsolgt"],["","Alle"]].map(([v,lbl]) => (
-            <button key={v||"all"} onClick={() => setFilters(f => ({ ...f, status:v }))}
-              style={{ padding:"6px 13px", borderRadius:20, border:`1.5px solid ${filters.status===v?C.primary:C.border}`, background:filters.status===v?C.primary:"#fff", color:filters.status===v?"#fff":C.textMid, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
-              {lbl}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Kategori */}
       <div>
         <div style={labelStyle}>Kategori</div>
@@ -717,6 +704,19 @@ function FilterPanel({ isMobile, open, onClose, filters, setFilters }) {
         <div style={labelStyle}>Pris</div>
         <PriceSlider min={0} max={5000} value={filters.price}
           onChange={v => setFilters(f => ({ ...f, price:v }))} />
+      </div>
+
+      {/* Status */}
+      <div>
+        <div style={labelStyle}>Status</div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {[["aktiv","✅ Aktiv"],["utgatt","⚠ Utgått"],["utsolgt","📦 Utsolgt"],["langtidsutsolgt","📦 Langtidsutsolgt"],["","Alle"]].map(([v,lbl]) => (
+            <button key={v||"all"} onClick={() => setFilters(f => ({ ...f, status:v }))}
+              style={{ padding:"6px 13px", borderRadius:20, border:`1.5px solid ${filters.status===v?C.primary:C.border}`, background:filters.status===v?C.primary:"#fff", color:filters.status===v?"#fff":C.textMid, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+              {lbl}
+            </button>
+          ))}
+        </div>
       </div>
 
       <button onClick={onClose} style={{ width:"100%", background:C.primary, color:"#fff", border:"none", borderRadius:12, padding:"13px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Vis resultater</button>
