@@ -622,71 +622,105 @@ function PriceSlider({ min, max, value, onChange }) {
 }
 
 function FilterPanel({ isMobile, open, onClose, filters, setFilters }) {
+  const [facets, setFacets] = useState({ countries:[], regions:[], subRegions:[] });
+  const [loadingFacets, setLoadingFacets] = useState(false);
+
+  // Load facets whenever category or country changes
+  useEffect(() => {
+    setLoadingFacets(true);
+    const p = new URLSearchParams({ category: filters.cat||"", country: filters.country||"" });
+    fetch(`/api/facets?${p}`)
+      .then(r => r.json())
+      .then(d => { if (d.countries) setFacets(d); })
+      .catch(() => {})
+      .finally(() => setLoadingFacets(false));
+  }, [filters.cat, filters.country]);
+
   const reset = () => setFilters({ cat:"", country:"", region:"", price:[0,5000], status:"aktiv" });
 
-  const chip = (val, current, onClick) => (
-    <button key={val||"__all__"} onClick={onClick}
-      style={{ padding:"6px 12px", borderRadius:20, border:`1.5px solid ${current===val?C.primary:C.border}`, background:current===val?C.primary:"#fff", color:current===val?"#fff":C.textMid, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
+  const chip = (val, current, onSelect, small=false) => (
+    <button key={val||"__all__"} onClick={() => onSelect(val)}
+      style={{ padding: small?"5px 10px":"6px 13px", borderRadius:20, border:`1.5px solid ${current===val?C.primary:C.border}`, background:current===val?C.primary:"#fff", color:current===val?"#fff":C.textMid, fontSize: small?11:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
       {val || "Alle"}
     </button>
   );
 
+  // Combine regions and sub-regions, deduplicate
+  const allRegions = [...new Set([...facets.regions, ...facets.subRegions])].sort();
+
   const content = (
-    <>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+    <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
         <span style={{ fontSize:17, fontWeight:800, color:C.text }}>Filter</span>
         <button onClick={reset} style={{ background:"none", border:"none", color:C.accent, fontWeight:700, fontSize:14, cursor:"pointer" }}>Nullstill</button>
       </div>
 
       {/* Status */}
-      <div style={{ marginBottom:18 }}>
+      <div>
         <div style={labelStyle}>Status</div>
-        <div style={{ display:"flex", gap:7 }}>
-          {[["aktiv","✅ Aktiv"],["utgått","⚠ Utgått"],["","Alle"]].map(([v,lbl]) =>
-            chip(v, filters.status, () => setFilters(f => ({ ...f, status:v })))
-          )}
+        <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
+          {[["aktiv","✅ Aktiv"],["utgått","⚠ Utgått"],["","Alle"]].map(([v,lbl]) => (
+            <button key={v||"all"} onClick={() => setFilters(f => ({ ...f, status:v }))}
+              style={{ padding:"6px 13px", borderRadius:20, border:`1.5px solid ${filters.status===v?C.primary:C.border}`, background:filters.status===v?C.primary:"#fff", color:filters.status===v?"#fff":C.textMid, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+              {lbl}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Kategori */}
-      <div style={{ marginBottom:18 }}>
+      <div>
         <div style={labelStyle}>Kategori</div>
         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-          {["", ...CATEGORIES].map(c => chip(c, filters.cat, () => setFilters(f => ({ ...f, cat:c }))))}
+          {["", ...CATEGORIES].map(c => chip(c, filters.cat, v => setFilters(f => ({ ...f, cat:v, country:"", region:"" }))))}
         </div>
       </div>
 
-      {/* Land */}
-      <div style={{ marginBottom:18 }}>
-        <div style={labelStyle}>Land</div>
-        <input value={filters.country} onChange={e => setFilters(f => ({ ...f, country:e.target.value }))}
-          placeholder="Skriv land... (f.eks. Italia)"
-          style={{ ...inputStyle, fontSize:13, padding:"9px 12px" }} />
+      {/* Land — dynamisk basert på kategori */}
+      <div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+          <span style={labelStyle}>Land</span>
+          {loadingFacets && <span style={{ fontSize:10, color:C.textSoft }}>Laster...</span>}
+        </div>
+        {facets.countries.length > 0 ? (
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap", maxHeight:140, overflowY:"auto" }}>
+            {chip("", filters.country, v => setFilters(f => ({ ...f, country:v, region:"" })), true)}
+            {facets.countries.map(c => chip(c, filters.country, v => setFilters(f => ({ ...f, country:v, region:"" })), true))}
+          </div>
+        ) : (
+          <div style={{ fontSize:12, color:C.textSoft }}>Velg kategori først</div>
+        )}
       </div>
 
-      {/* Region */}
-      <div style={{ marginBottom:18 }}>
-        <div style={labelStyle}>Region/distrikt</div>
-        <input value={filters.region} onChange={e => setFilters(f => ({ ...f, region:e.target.value }))}
-          placeholder="Skriv region... (f.eks. Barolo)"
-          style={{ ...inputStyle, fontSize:13, padding:"9px 12px" }} />
-      </div>
+      {/* Region — dynamisk basert på kategori + land */}
+      {allRegions.length > 0 && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+            <span style={labelStyle}>Region / distrikt</span>
+          </div>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap", maxHeight:180, overflowY:"auto" }}>
+            {chip("", filters.region, v => setFilters(f => ({ ...f, region:v })), true)}
+            {allRegions.map(r => chip(r, filters.region, v => setFilters(f => ({ ...f, region:v })), true))}
+          </div>
+        </div>
+      )}
 
       {/* Pris */}
-      <div style={{ marginBottom:20 }}>
+      <div>
         <div style={labelStyle}>Pris</div>
         <PriceSlider min={0} max={5000} value={filters.price}
           onChange={v => setFilters(f => ({ ...f, price:v }))} />
       </div>
 
       <button onClick={onClose} style={{ width:"100%", background:C.primary, color:"#fff", border:"none", borderRadius:12, padding:"13px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Vis resultater</button>
-    </>
+    </div>
   );
+
   if (!isMobile) return (
     <div style={{ background:C.bgCard, borderRadius:14, border:`1px solid ${C.border}`, padding:"20px", position:"sticky", top:80, maxHeight:"calc(100vh - 100px)", overflowY:"auto" }}>{content}</div>
   );
   if (!open) return null;
-  return <BottomSheet onClose={onClose}><div style={{ padding:"0 18px" }}>{content}</div></BottomSheet>;
+  return <BottomSheet onClose={onClose}><div style={{ padding:"0 18px 20px" }}>{content}</div></BottomSheet>;
 }
 
 // ─── PAGINATION ───────────────────────────────────────────────────────────────
