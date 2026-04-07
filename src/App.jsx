@@ -472,32 +472,49 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
     setMode("barcode");
     setError("");
     try {
-      const reader = new BrowserMultiFormatReader();
-      readerRef.current = reader;
+      // Hent kamerastream manuelt for å ha kontroll over video-elementet
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      streamRef.current = stream;
 
-      // decodeFromVideoDevice starter kamera og leser kontinuerlig
-      // deviceId=undefined → bruker standard/bakre kamera
-      await reader.decodeFromVideoDevice(
-        undefined,
-        videoRef.current,
-        async (result, err, controls) => {
-          if (result) {
-            controls.stop();
-            readerRef.current = null;
-            if (streamRef.current) {
-              streamRef.current.getTracks().forEach(t => t.stop());
-              streamRef.current = null;
-            }
-            setBarcodeActive(false);
-            await lookupBarcode(result.getText());
-          }
-          // err er satt på hvert frame uten kode — ikke en ekte feil
-        }
-      );
+      // Koble stream til video-elementet direkte
+      const video = videoRef.current;
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true");
+      video.setAttribute("muted", "true");
+      await video.play();
       setBarcodeActive(true);
 
+      // Poll kameraframes med canvas
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      const reader = new BrowserMultiFormatReader();
+      readerRef.current = reader;
+      let active = true;
+
+      const poll = () => {
+        if (!active || !readerRef.current) return;
+        if (video.readyState >= 2 && video.videoWidth > 0) {
+          canvas.width  = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0);
+          try {
+            const result = reader.decodeFromCanvas(canvas);
+            if (result) {
+              active = false;
+              stopCamera();
+              lookupBarcode(result.getText());
+              return;
+            }
+          } catch { /* ingen kode i dette frame */ }
+        }
+        requestAnimationFrame(poll);
+      };
+      requestAnimationFrame(poll);
+
     } catch(e) {
-      setError("Feil: " + e.message + ". Prøv etikett-skanning i stedet.");
+      setError("Kamera ikke tilgjengelig: " + e.message);
     }
   };
 
