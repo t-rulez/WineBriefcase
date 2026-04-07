@@ -11,33 +11,59 @@ export default async function handler(req, res) {
 
   const html = await r.text();
 
-  // Return chunks of the HTML so we can see the structure
+  // The data is in a React component script tag as JSON
+  // Find the product data JSON block
+  const scriptMatches = [];
+  const scriptRegex = /<script type="application\/json">([\s\S]*?)<\/script>/g;
+  let m;
+  while ((m = scriptRegex.exec(html)) !== null) {
+    const text = m[1].trim();
+    if (text.includes("salesPrice") || text.includes("main_category") || text.includes("litrePrice")) {
+      try {
+        scriptMatches.push(JSON.parse(text));
+      } catch(e) {
+        scriptMatches.push({ parseError: e.message, raw: text.substring(0, 500) });
+      }
+    }
+  }
+
+  // Also look for the product data in data-react-component sections
+  const dataComponentRegex = /data-react-component="[^"]*Product[^"]*"[\s\S]*?<script type="application\/json">([\s\S]*?)<\/script>/g;
+  const components = [];
+  while ((m = dataComponentRegex.exec(html)) !== null) {
+    try { components.push(JSON.parse(m[1])); } catch {}
+  }
+
+  // Find the chunk around "salesPrice"
+  const salePriceIdx = html.indexOf("salesPrice");
+  const salePriceContext = salePriceIdx > -1
+    ? html.substring(salePriceIdx - 50, salePriceIdx + 500)
+    : "not found";
+
+  // Find the chunk around "alcoholContent"  
+  const alcoholIdx = html.indexOf("alcoholContent");
+  const alcoholContext = alcoholIdx > -1
+    ? html.substring(alcoholIdx - 50, alcoholIdx + 300)
+    : "not found";
+
+  // Find grapeDesc
+  const grapeIdx = html.indexOf("grapeDesc");
+  const grapeContext = grapeIdx > -1
+    ? html.substring(grapeIdx - 50, grapeIdx + 300)
+    : "not found";
+
+  // Find characteristicDescription
+  const descIdx = html.indexOf("characteristicDescription");
+  const descContext = descIdx > -1
+    ? html.substring(descIdx - 20, descIdx + 400)
+    : "not found";
+
   return res.status(200).json({
-    httpStatus: r.status,
-    htmlLength: html.length,
-    // Show different sections of the HTML
-    chunk1: html.substring(0, 3000),
-    chunk2: html.substring(3000, 6000),
-    chunk3: html.substring(6000, 9000),
-    // Search for price-related text
-    priceContext: (() => {
-      const idx = html.indexOf("666");
-      return idx > -1 ? html.substring(idx - 200, idx + 200) : "not found";
-    })(),
-    // Search for alcohol
-    alcoholContext: (() => {
-      const idx = html.toLowerCase().indexOf("alkohol");
-      return idx > -1 ? html.substring(idx - 100, idx + 300) : "not found";
-    })(),
-    // Search for grape/drue
-    grapeContext: (() => {
-      const idx = html.toLowerCase().indexOf("drue");
-      return idx > -1 ? html.substring(idx - 100, idx + 300) : "not found";
-    })(),
-    // Look for any JSON in the page
-    firstJsonLike: (() => {
-      const idx = html.indexOf('{"');
-      return idx > -1 ? html.substring(idx, idx + 500) : "not found";
-    })(),
+    scriptMatches,
+    components,
+    salePriceContext,
+    alcoholContext,
+    grapeContext,
+    descContext,
   });
 }
