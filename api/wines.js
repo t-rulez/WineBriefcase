@@ -61,39 +61,39 @@ export default async function handler(req, res) {
     const cq = category ? `%${category}%` : null;
     const coq = country ? `%${country}%` : null;
     const rq = region ? `%${region}%` : null;
-    const stq = status ? `%${status}%` : null;
+    const stq = status || null; // exact match for status
 
     // Use tagged template literals — Neon handles parameterization automatically
     if (sq && cq && coq && rq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq}) AND type ILIKE ${cq} AND country ILIKE ${coq} AND (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq}) AND type ILIKE ${cq} AND country ILIKE ${coq} AND (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (sq && cq && coq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq}) AND type ILIKE ${cq} AND country ILIKE ${coq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq}) AND type ILIKE ${cq} AND country ILIKE ${coq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (sq && cq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq}) AND type ILIKE ${cq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq}) AND type ILIKE ${cq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (sq && coq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq}) AND country ILIKE ${coq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq}) AND country ILIKE ${coq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (sq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq} OR region ILIKE ${sq} OR country ILIKE ${sq} OR type ILIKE ${sq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE (name ILIKE ${sq} OR producer ILIKE ${sq} OR grapes ILIKE ${sq} OR region ILIKE ${sq} OR country ILIKE ${sq} OR type ILIKE ${sq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (cq && coq && rq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cq} AND country ILIKE ${coq} AND (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cq} AND country ILIKE ${coq} AND (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (cq && coq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cq} AND country ILIKE ${coq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cq} AND country ILIKE ${coq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (cq && rq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cq} AND (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cq} AND (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (cq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE type ILIKE ${cq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (coq && rq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE country ILIKE ${coq} AND (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE country ILIKE ${coq} AND (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (coq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE country ILIKE ${coq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE country ILIKE ${coq} AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (rq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status ILIKE ${stq}) ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE (region ILIKE ${rq} OR sub_region ILIKE ${rq}) AND (${!isPriceFiltered} OR (price >= ${pMin} AND price <= ${pMax})) AND (${!stq} OR status = ${stq}) ORDER BY name LIMIT 200`;
     } else if (isPriceFiltered && stq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE price >= ${pMin} AND price <= ${pMax} AND status ILIKE ${stq} ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE price >= ${pMin} AND price <= ${pMax} AND status = ${stq} ORDER BY name LIMIT 200`;
     } else if (isPriceFiltered) {
       rows = await sql`SELECT * FROM vb_wines WHERE price >= ${pMin} AND price <= ${pMax} ORDER BY name LIMIT 200`;
     } else if (stq) {
-      rows = await sql`SELECT * FROM vb_wines WHERE status ILIKE ${stq} ORDER BY name LIMIT 200`;
+      rows = await sql`SELECT * FROM vb_wines WHERE status = ${stq} ORDER BY name LIMIT 200`;
     } else {
       rows = await sql`SELECT * FROM vb_wines ORDER BY name LIMIT 200`;
     }

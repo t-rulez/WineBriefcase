@@ -233,7 +233,11 @@ function WineCard({ wine, onSelect, onAddTasting, onAddToCellar, isDesktop }) {
           <div style={{ display:"flex", gap:5, marginTop:7, flexWrap:"wrap" }}>
             {wine.mainCategory && <span style={{ background:catColor+"18", color:catColor, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:600 }}>{wine.mainCategory}</span>}
             {wine.country && <span style={{ background:C.bg, color:C.textMid, padding:"2px 9px", borderRadius:20, fontSize:11 }}>{wine.country}</span>}
-            {wine.status && wine.status !== "aktiv" && <span style={{ background:"#fbe9e7", color:C.red, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700 }}>⚠ Utgått</span>}
+            {wine.status && wine.status !== "aktiv" && (
+              <span style={{ background:"#fbe9e7", color:C.red, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700 }}>
+                {wine.status === "utgatt" ? "⚠ Utgått" : wine.status === "langtidsutsolgt" ? "📦 Utsolgt" : wine.status === "utsolgt" ? "📦 Utsolgt" : "⚠ Ikke aktiv"}
+              </span>
+            )}
 
           </div>
           {wine.grapes && <div style={{ fontSize:11, color:C.textSoft, marginTop:5, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>🍇 {wine.grapes}</div>}
@@ -281,7 +285,10 @@ function WineDetail({ wine, onClose, onAddTasting, onAddToCellar, isMobile }) {
         {wine.year && <span style={{ background:C.bg, color:C.textMid, padding:"3px 11px", borderRadius:20, fontSize:12, fontWeight:600 }}>📅 {wine.year}</span>}
         {wine.status && wine.status !== "aktiv" && (
           <span style={{ background:"#fbe9e7", color:C.red, padding:"3px 14px", borderRadius:20, fontSize:13, fontWeight:700, border:`1.5px solid ${C.red}` }}>
-            ⚠ Utgått — ikke lenger i sortimentet
+            {wine.status === "utgatt" ? "⚠ Utgått — ikke lenger i sortimentet"
+             : wine.status === "langtidsutsolgt" ? "📦 Langtidsutsolgt"
+             : wine.status === "utsolgt" ? "📦 Utsolgt"
+             : "⚠ Ikke aktiv"}
           </span>
         )}
 
@@ -659,7 +666,7 @@ function FilterPanel({ isMobile, open, onClose, filters, setFilters }) {
       <div>
         <div style={labelStyle}>Status</div>
         <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
-          {[["aktiv","✅ Aktiv"],["utgått","⚠ Utgått"],["","Alle"]].map(([v,lbl]) => (
+          {[["aktiv","✅ Aktiv"],["utgatt","⚠ Utgått"],["utsolgt","📦 Utsolgt"],["langtidsutsolgt","📦 Langtidsutsolgt"],["","Alle"]].map(([v,lbl]) => (
             <button key={v||"all"} onClick={() => setFilters(f => ({ ...f, status:v }))}
               style={{ padding:"6px 13px", borderRadius:20, border:`1.5px solid ${filters.status===v?C.primary:C.border}`, background:filters.status===v?C.primary:"#fff", color:filters.status===v?"#fff":C.textMid, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
               {lbl}
