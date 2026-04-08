@@ -440,7 +440,7 @@ function TastingCard({ entry, onDelete, onEdit }) {
 }
 
 // ─── SKANNER ──────────────────────────────────────────────────────────────────
-function LabelScanner({ onScanComplete, onClose, isMobile }) {
+function LabelScanner({ onScanComplete, onClose, isMobile, onSelectWine }) {
   const [mode, setMode]         = useState("choose"); // choose | barcode | label
   const [scanning, setScanning] = useState(false);
   const [result, setResult]     = useState(null);
@@ -690,7 +690,7 @@ function LabelScanner({ onScanComplete, onClose, isMobile }) {
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:8, maxHeight:340, overflowY:"auto" }}>
             {result.wines.map(wine => (
-              <button key={wine.id} onClick={() => { onScanComplete([wine], result.wineInfo); onClose(); }}
+              <button key={wine.id} onClick={() => { onClose(); onSelectWine(wine); }}
                 style={{ display:"flex", gap:10, alignItems:"center", padding:"10px 12px", background:"#fff", border:`1.5px solid ${C.border}`, borderRadius:10, cursor:"pointer", textAlign:"left", fontFamily:"inherit", width:"100%" }}>
                 <WineBottleImg wine={wine} size={30} />
                 <div style={{ flex:1, minWidth:0 }}>
@@ -1361,6 +1361,7 @@ export default function VinApp() {
             setWines(scanWines);
             setSearch(wineInfo?.producer || wineInfo?.name || "");
           }}
+          onSelectWine={(wine) => { setShowScanner(false); setSelectedWine(wine); }}
           onClose={() => setShowScanner(false)}
           isMobile={!isDesktop} />
       )}
