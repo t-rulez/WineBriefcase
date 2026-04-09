@@ -150,7 +150,7 @@ function AuthScreen({ onLogin }) {
       <div style={{ background:"#fff", borderRadius:22, padding:"38px 32px", width:"100%", maxWidth:400, boxShadow:"0 24px 64px rgba(0,0,0,0.45)" }}>
         <div style={{ textAlign:"center", marginBottom:28 }}>
           <div style={{ fontSize:48, marginBottom:6 }}>🍷</div>
-          <div style={{ fontSize:24, fontWeight:800, color:C.primary }}>VinBriefcase</div>
+          <div style={{ fontSize:24, fontWeight:800, color:C.primary }}>WineBriefcase</div>
           <div style={{ fontSize:12, color:C.textSoft, letterSpacing:"0.12em", textTransform:"uppercase", marginTop:4 }}>Din personlige vinlogg</div>
         </div>
         <div style={{ display:"flex", background:C.bg, borderRadius:12, padding:4, marginBottom:24 }}>
@@ -925,6 +925,50 @@ function Pagination({ page, totalPages, onChange }) {
 }
 
 // ─── HOVED-APP ────────────────────────────────────────────────────────────────
+// ─── APP SWITCHER ─────────────────────────────────────────────────────────────
+const APPS = [
+  { name: "WineBriefcase",  url: "https://winebriefcase.vercel.app",  emoji: "🍷" },
+  { name: "CigarBriefcase", url: "https://cigarbriefcase.vercel.app", emoji: "🚬" },
+  { name: "SpiceBriefcase", url: "https://spicebriefcase.vercel.app", emoji: "🌶️" },
+];
+const CURRENT_APP = "WineBriefcase";
+
+function AppSwitcher() {
+  const [open, setOpen] = useState(false);
+  const current = APPS.find(a => a.name === CURRENT_APP);
+
+  return (
+    <div style={{ position:"relative" }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ display:"flex", alignItems:"center", gap:6, background:"rgba(255,255,255,0.12)", border:"none", borderRadius:8, padding:"6px 10px", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700, fontFamily:"inherit", whiteSpace:"nowrap" }}>
+        {current.emoji} {current.name}
+        <span style={{ fontSize:9, opacity:0.7, marginLeft:2 }}>▼</span>
+      </button>
+      {open && (
+        <>
+          {/* Backdrop */}
+          <div onClick={() => setOpen(false)} style={{ position:"fixed", inset:0, zIndex:98 }} />
+          {/* Dropdown */}
+          <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, background:"#fff", borderRadius:12, boxShadow:"0 8px 32px rgba(0,0,0,0.25)", zIndex:99, minWidth:200, overflow:"hidden", border:`1px solid ${C.border}` }}>
+            <div style={{ padding:"8px 14px 6px", fontSize:10, color:C.textSoft, textTransform:"uppercase", letterSpacing:"0.1em", fontWeight:700 }}>Briefcase Apps</div>
+            {APPS.map(app => (
+              <a key={app.name} href={app.url}
+                style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", textDecoration:"none", background: app.name===CURRENT_APP ? C.bg : "#fff", borderTop:`1px solid ${C.borderLight}` }}
+                onClick={() => setOpen(false)}>
+                <span style={{ fontSize:20 }}>{app.emoji}</span>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color: app.name===CURRENT_APP ? C.primary : C.text }}>{app.name}</div>
+                  {app.name === CURRENT_APP && <div style={{ fontSize:10, color:C.primary, fontWeight:600 }}>● Aktiv</div>}
+                </div>
+              </a>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function VinApp() {
   const [user, setUser]             = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
@@ -1265,11 +1309,12 @@ export default function VinApp() {
       <div style={{ background:C.headerBg, color:"#fff", position:"sticky", top:0, zIndex:50, boxShadow:"0 2px 16px rgba(0,0,0,0.4)" }}>
         <div style={{ display:"flex", alignItems:"center", padding:isDesktop?"0 32px":`${window.navigator.standalone?"44px":"16px"} 14px 0` }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, flex:isDesktop?0:1, padding:isDesktop?"14px 0":"0" }}>
-            <span style={{ fontSize:isDesktop?22:20 }}>🍷</span>
-            <div>
-              <div style={{ fontSize:isDesktop?16:15, fontWeight:800, lineHeight:1 }}>VinBriefcase <span style={{ color:C.gold }}>v2.0</span></div>
-              <div style={{ fontSize:9, color:"rgba(255,255,255,0.5)", letterSpacing:"0.12em", textTransform:"uppercase" }}>Live fra Vinmonopolet</div>
-            </div>
+            <AppSwitcher />
+            {isDesktop && (
+              <div style={{ marginLeft:4 }}>
+                <div style={{ fontSize:9, color:"rgba(255,255,255,0.5)", letterSpacing:"0.12em", textTransform:"uppercase" }}>Live fra Vinmonopolet</div>
+              </div>
+            )}
           </div>
 
           {isDesktop && (
