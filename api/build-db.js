@@ -184,6 +184,83 @@ export default async function handler(req, res) {
   if (!vmpKey) return res.status(500).json({ error: "Mangler VINMONOPOLET_API_KEY" });
 
   const sql = neon(process.env.DATABASE_URL);
+  const mode = req.query.mode || "build"; // "build" | "update"
+
+  // ── OPPDATER-MODUS: finn nye produkter ikke i databasen ───────────────────
+  if (mode === "update") {
+    const batchIndex  = parseInt(req.query.batch || "0");
+    const searches    = SEARCHES.slice(batchIndex, batchIndex + 1);
+    const totalBatches = SEARCHES.length;
+
+    if (batchIndex >= totalBatches) {
+      const newCount = await sql`SELECT COUNT(*) as c FROM vb_queue WHERE scraped = false`;
+      const wineCount = await sql`SELECT COUNT(*) as c FROM vb_wines`;
+      return res.status(200).json({
+        done: true,
+        newInQueue: Number(newCount[0].c),
+        totalWines: Number(wineCount[0].c),
+        message: "Ferdig med å søke etter nye viner!",
+      });
+    }
+
+    // Opprett tabeller om de ikke finnes
+    await sql`CREATE TABLE IF NOT EXISTS vb_wines (
+      id SERIAL PRIMARY KEY, product_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+      producer TEXT DEFAULT '', country TEXT DEFAULT '', region TEXT DEFAULT '',
+      sub_region TEXT DEFAULT '', year INTEGER, type TEXT DEFAULT '',
+      grapes TEXT DEFAULT '', alcohol REAL, volume REAL DEFAULT 0.75,
+      price INTEGER, color TEXT DEFAULT '', flavor_profile TEXT DEFAULT '',
+      taste_fullness INTEGER, taste_sweetness INTEGER, taste_freshness INTEGER,
+      taste_tannins INTEGER, taste_bitterness INTEGER, aromas TEXT DEFAULT '[]',
+      description_no TEXT DEFAULT '', status TEXT DEFAULT 'aktiv'
+    )`;
+    await sql`CREATE TABLE IF NOT EXISTS vb_queue (
+      product_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      scraped BOOLEAN DEFAULT false, queued_at TIMESTAMP DEFAULT NOW()
+    )`;
+    await sql`CREATE TABLE IF NOT EXISTS vb_build_log (
+      id SERIAL PRIMARY KEY, batch_index INTEGER NOT NULL,
+      search_term TEXT NOT NULL, found INTEGER DEFAULT 0,
+      inserted INTEGER DEFAULT 0, completed_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    const term = searches[0];
+    const vmpProducts = await getVmpProducts(vmpKey, term);
+    let newCount = 0;
+
+    for (const p of vmpProducts) {
+      const pid  = p.basic?.productId;
+      const name = p.basic?.productShortName;
+      if (!pid || !name) continue;
+
+      // Kun legg til i kø hvis produktet IKKE allerede finnes i vb_wines
+      const existing = await sql`SELECT 1 FROM vb_wines WHERE product_id = ${pid} LIMIT 1`;
+      if (existing.length === 0) {
+        await sql`INSERT INTO vb_queue (product_id, name, scraped)
+          VALUES (${pid}, ${name}, false)
+          ON CONFLICT (product_id) DO UPDATE SET scraped = false
+          WHERE vb_queue.scraped = true`; // re-kø kun hvis tidligere feilet
+        newCount++;
+      }
+    }
+
+    const queueCount = await sql`SELECT COUNT(*) as c FROM vb_queue WHERE scraped = false`;
+    const nextBatch  = batchIndex + 1;
+    const hasMore    = nextBatch < totalBatches;
+
+    return res.status(200).json({
+      mode: "update",
+      batch: `${batchIndex + 1}/${totalBatches}`,
+      term,
+      found: vmpProducts.length,
+      new: newCount,
+      totalPending: Number(queueCount[0].c),
+      hasMore,
+      nextUrl: hasMore ? `/api/build-db?mode=update&batch=${nextBatch}` : null,
+    });
+  }
+
+  // ── BYGG-MODUS (original) ─────────────────────────────────────────────────
   const batchIndex  = parseInt(req.query.batch || "0");
   const searches    = SEARCHES.slice(batchIndex, batchIndex + 1);
   const totalBatches = SEARCHES.length;

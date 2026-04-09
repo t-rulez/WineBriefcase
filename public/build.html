@@ -43,8 +43,10 @@
     <div><div class="stat-val" id="total-wines">0</div><div class="stat-lbl">Viner i DB</div></div>
     <div><div class="stat-val" id="total-queued">0</div><div class="stat-lbl">I kø</div></div>
     <div><div class="stat-val" id="total-remaining">—</div><div class="stat-lbl">Gjenstår</div></div>
-    <div style="margin-left:auto">
-      <button class="btn btn-primary" id="startBtn" onclick="startAll()">▶ Start alt</button>
+    <div><div class="stat-val" id="total-new">—</div><div class="stat-lbl">Nye viner</div></div>
+    <div style="margin-left:auto; display:flex; gap:8px; flex-wrap:wrap">
+      <button class="btn btn-primary" id="startBtn" onclick="startAll()">▶ Bygg database</button>
+      <button class="btn btn-secondary" id="updateBtn" onclick="startUpdate()" title="Finn nye viner fra Vinmonopolet og legg til i databasen">🔄 Oppdater</button>
       <button class="btn btn-secondary" onclick="startScrape()">Kun fase 2</button>
     </div>
   </div>
@@ -182,6 +184,55 @@ async function startScrape() {
   running = false;
   document.getElementById("startBtn").disabled = false;
   document.getElementById("startBtn").textContent = "▶ Kjør igjen";
+}
+
+async function startUpdate() {
+  if (running) return;
+  running = true;
+  document.getElementById("updateBtn").disabled = true;
+  document.getElementById("startBtn").disabled = true;
+  log("=== Starter oppdatering: søker etter nye viner ===", "info");
+  setBadge("phase1-badge", "Kjører", "phase-running");
+
+  let batch = 0;
+  let totalNew = 0;
+
+  // Fase 1: finn nye produkter
+  while (batch < TOTAL_BATCHES) {
+    try {
+      const r = await fetch(`${BASE}/api/build-db?mode=update&batch=${batch}`);
+      const data = await r.json();
+
+      totalNew += data.new || 0;
+      document.getElementById("total-new").textContent = totalNew;
+      document.getElementById("p1-batch").textContent = batch + 1;
+      document.getElementById("p1-progress").style.width = Math.round(((batch+1)/TOTAL_BATCHES)*100) + "%";
+
+      if (data.new > 0) log(`  ✓ ${data.term}: ${data.new} nye funnet (${data.found} totalt)`, "ok");
+
+      if (!data.hasMore) break;
+      batch++;
+    } catch(e) {
+      log(`Feil batch ${batch}: ${e.message}`, "err");
+      await new Promise(r => setTimeout(r, 3000));
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  setBadge("phase1-badge", "Ferdig", "phase-done");
+
+  if (totalNew === 0) {
+    log("✅ Ingen nye viner funnet — databasen er oppdatert!", "ok");
+    running = false;
+    document.getElementById("updateBtn").disabled = false;
+    document.getElementById("startBtn").disabled = false;
+    return;
+  }
+
+  log(`=== Fant ${totalNew} nye viner — starter scraping ===`, "info");
+  await startScrape();
+
+  document.getElementById("updateBtn").disabled = false;
 }
 </script>
 </body>
