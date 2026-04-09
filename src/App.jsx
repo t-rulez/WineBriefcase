@@ -1307,7 +1307,7 @@ export default function VinApp() {
     <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'Georgia','Times New Roman',serif", paddingBottom:isDesktop?0:70 }}>
       {/* HEADER */}
       <div style={{ background:C.headerBg, color:"#fff", position:"sticky", top:0, zIndex:50, boxShadow:"0 2px 16px rgba(0,0,0,0.4)" }}>
-        <div style={{ display:"flex", alignItems:"center", padding:isDesktop?"0 32px":`${window.navigator.standalone?"44px":"16px"} 14px 0` }}>
+        <div style={{ maxWidth:isDesktop?1400:undefined, margin:isDesktop?"0 auto":undefined, display:"flex", alignItems:"center", padding:isDesktop?"0 32px":`${window.navigator.standalone?"44px":"16px"} 14px 0` }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, flex:isDesktop?0:1, padding:isDesktop?"14px 0":"0" }}>
             <AppSwitcher />
             {isDesktop && (
@@ -1342,7 +1342,7 @@ export default function VinApp() {
 
         {/* Søkefelt */}
         {tab === "database" && (
-          <div style={{ display:"flex", gap:8, padding:isDesktop?"10px 32px 14px":"10px 14px 14px" }}>
+          <div style={{ maxWidth:isDesktop?1400:undefined, margin:isDesktop?"0 auto":undefined, display:"flex", gap:8, padding:isDesktop?"10px 32px 14px":"10px 14px 14px" }}>
             <div style={{ flex:1, position:"relative" }}>
               <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"rgba(255,255,255,0.45)", pointerEvents:"none" }}><IcoSearch /></span>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Søk vin, produsent, drue, region..."
